@@ -367,7 +367,40 @@ function tick() {
   tickPhysics(dt);
   tickBolts(dt);
   updateBoredom();
+  updateDebugHud();
   requestAnimationFrame(tick);
+}
+
+// ============================================================
+// ОТЛАДОЧНЫЙ ХУД (убрать когда всё заработает)
+// ============================================================
+
+let debugEl = null;
+
+function createDebugHud() {
+  debugEl = document.createElement('div');
+  debugEl.style.cssText = [
+    'position:fixed', 'top:8px', 'left:8px', 'z-index:8888',
+    'background:rgba(0,0,0,0.7)', 'color:#0ff',
+    'font:11px/1.5 monospace', 'padding:6px 8px',
+    'border-radius:6px', 'pointer-events:none',
+    'white-space:pre'
+  ].join(';');
+  document.body.appendChild(debugEl);
+}
+
+function updateDebugHud() {
+  if (!debugEl) return;
+  debugEl.textContent =
+    'gyro: ' + (gyroEnabled ? 'ON' : 'OFF') + '\n' +
+    'beta:  ' + gyroBeta.toFixed(1) + '\n' +
+    'gamma: ' + gyroGamma.toFixed(1) + '\n' +
+    'neutral b: ' + (neutralBeta  !== null ? neutralBeta.toFixed(1)  : '...') + '\n' +
+    'neutral g: ' + (neutralGamma !== null ? neutralGamma.toFixed(1) : '...') + '\n' +
+    'filt b: ' + filteredBeta.toFixed(2) + '\n' +
+    'filt g: ' + filteredGamma.toFixed(2) + '\n' +
+    'motion: ' + (typeof onDeviceMotion === 'function' ? 'listener OK' : 'NO') + '\n' +
+    'sensors: ' + (sensorsReady ? 'ready' : 'waiting');
 }
 
 // ============================================================
@@ -377,4 +410,5 @@ function tick() {
 initPhysics();
 initBolts();
 createStartScreen();
+createDebugHud();
 requestAnimationFrame(tick);
