@@ -1,10 +1,6 @@
 // ============================================================
 // renderer.js — Telegram Mini App
-//
-// Управление:
-//   iOS:     свайп по экрану = наклон, кнопка ⚡ = тряска
-//   Android: гироскоп = наклон, быстрый свайп = тряска
-//   Десктоп: стрелки / пробел
+// Свайп = наклон, кнопка ⚡ = тряска, тап = радость
 // ============================================================
 
 const pet   = document.getElementById('pet');
@@ -68,7 +64,7 @@ function noteInteraction() {
 // ТРЯСКА
 // ============================================================
 
-let shakeActive   = false;
+let shakeActive  = false;
 let lastShakeTime = 0;
 const SHAKE_COOLDOWN = 1200;
 
@@ -89,39 +85,40 @@ function triggerShake() {
 }
 
 // ============================================================
-// СЕНСОРЫ УСТРОЙСТВА
-// Пробуем в порядке: Telegram API → браузерный
+// СЕНСОРЫ (гироскоп + акселерометр)
+// Работает на Android, для iOS — fallback на свайп
 // ============================================================
 
-let gyroEnabled = false;
-let gyroBeta    = 0;
-let gyroGamma   = 0;
+let gyroEnabled  = false;
+let gyroBeta     = 0;
+let gyroGamma    = 0;
+let filteredBeta = 0, filteredGamma = 0;
+let neutralBeta  = null, neutralGamma = null;
+let calibFrames  = 0, calibSumB = 0, calibSumG = 0;
 
-// Тряска через акселерометр
+const GYRO_FILTER    = 0.15;
+const GYRO_DEADZONE  = 3.0;
+const GYRO_MAX_ANGLE = 40.0;
+const GYRO_STRENGTH  = 0.8;
+const CALIB_FRAMES   = 30;
+
 let prevAccX = 0, prevAccY = 0, prevAccZ = 0;
 const SHAKE_THRESHOLD = 20;
-let lastAccShake = 0;
 
 function checkAccShake(ax, ay, az) {
   const jerk = Math.hypot(ax - prevAccX, ay - prevAccY, az - prevAccZ);
   prevAccX = ax; prevAccY = ay; prevAccZ = az;
   if (jerk > SHAKE_THRESHOLD) {
     const now = Date.now();
-    if (now - lastAccShake > SHAKE_COOLDOWN) {
-      lastAccShake = now;
-      triggerShake();
-    }
+    if (now - lastShakeTime > SHAKE_COOLDOWN) triggerShake();
   }
 }
 
-let usingTelegramSensors = false;
-
-function tryStartTelegramSensors() {
+function startTelegramSensors() {
   if (!TG) return false;
   let ok = false;
-
-  if (TG.DeviceOrientation && typeof TG.DeviceOrientation.start === 'function') {
-    try {
+  try {
+    if (TG.DeviceOrientation && typeof TG.DeviceOrientation.start === 'function') {
       TG.DeviceOrientation.start({ refresh_rate: 50, need_absolute: false });
       TG.DeviceOrientation.onChanged(() => {
         gyroBeta  = TG.DeviceOrientation.beta  || 0;
@@ -129,27 +126,20 @@ function tryStartTelegramSensors() {
         gyroEnabled = true;
       });
       ok = true;
-    } catch(e) {}
-  }
-
-  if (TG.Accelerometer && typeof TG.Accelerometer.start === 'function') {
-    try {
+    }
+  } catch(e) {}
+  try {
+    if (TG.Accelerometer && typeof TG.Accelerometer.start === 'function') {
       TG.Accelerometer.start({ refresh_rate: 60 });
       TG.Accelerometer.onChanged(() => {
-        checkAccShake(
-          TG.Accelerometer.x || 0,
-          TG.Accelerometer.y || 0,
-          TG.Accelerometer.z || 0
-        );
+        checkAccShake(TG.Accelerometer.x||0, TG.Accelerometer.y||0, TG.Accelerometer.z||0);
       });
-    } catch(e) {}
-  }
-
+    }
+  } catch(e) {}
   return ok;
 }
 
 function startBrowserSensors() {
-  // DeviceOrientation (Android, десктоп)
   const doOrientation = () => {
     window.addEventListener('deviceorientation', e => {
       if (e.beta == null) return;
@@ -158,40 +148,31 @@ function startBrowserSensors() {
       gyroEnabled = true;
     }, { passive: true });
   };
-
   if (typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function') {
-    DeviceOrientationEvent.requestPermission()
-      .then(s => { if (s === 'granted') doOrientation(); })
-      .catch(doOrientation);
+    DeviceOrientationEvent.requestPermission().then(s => {
+      if (s === 'granted') doOrientation();
+    }).catch(doOrientation);
   } else {
     doOrientation();
   }
 
-  // DeviceMotion (Android, десктоп)
   const doMotion = () => {
     window.addEventListener('devicemotion', e => {
       const a = e.accelerationIncludingGravity;
       if (!a) return;
-      checkAccShake(a.x || 0, a.y || 0, a.z || 0);
+      checkAccShake(a.x||0, a.y||0, a.z||0);
     }, { passive: true });
   };
-
   if (typeof DeviceMotionEvent !== 'undefined' &&
       typeof DeviceMotionEvent.requestPermission === 'function') {
-    DeviceMotionEvent.requestPermission()
-      .then(s => { if (s === 'granted') doMotion(); })
-      .catch(doMotion);
+    DeviceMotionEvent.requestPermission().then(s => {
+      if (s === 'granted') doMotion();
+    }).catch(doMotion);
   } else {
     doMotion();
   }
 }
-
-// Калибровка нейтрального положения
-let neutralBeta  = null;
-let neutralGamma = null;
-let calibFrames = 0, calibSumB = 0, calibSumG = 0;
-const CALIB_FRAMES = 30;
 
 function calibrateGyro() {
   if (neutralBeta !== null) return;
@@ -203,35 +184,24 @@ function calibrateGyro() {
   }
 }
 
-// Фильтр и применение наклона
-let filteredBeta = 0, filteredGamma = 0;
-const GYRO_FILTER    = 0.15;
-const GYRO_DEADZONE  = 3.0;
-const GYRO_MAX_ANGLE = 40.0;
-const GYRO_STRENGTH  = 0.8;
-
 function applyGyroTilt() {
   if (!gyroEnabled) return;
   calibrateGyro();
   if (neutralBeta === null) return;
-
   filteredGamma += ((gyroGamma - neutralGamma) - filteredGamma) * GYRO_FILTER;
   filteredBeta  += ((gyroBeta  - neutralBeta)  - filteredBeta)  * GYRO_FILTER;
-
   const dg = Math.abs(filteredGamma) < GYRO_DEADZONE ? 0 : filteredGamma;
   const db = Math.abs(filteredBeta)  < GYRO_DEADZONE ? 0 : filteredBeta;
   if (dg === 0 && db === 0) return;
-
   const ix = Math.max(-1, Math.min(1, dg / GYRO_MAX_ANGLE));
   const iy = Math.max(-1, Math.min(1, db / GYRO_MAX_ANGLE));
   applyTilt(ix * GYRO_STRENGTH, iy * GYRO_STRENGTH);
 }
 
 // ============================================================
-// ЭКРАН "TAP TO START"
+// ЭКРАН "TAP TO START" — только для запроса разрешений
+// свайп работает и до и после него
 // ============================================================
-
-let sensorsReady = false;
 
 function createStartScreen() {
   const overlay = document.createElement('div');
@@ -247,16 +217,17 @@ function createStartScreen() {
   box.innerHTML =
     '<div style="font-size:54px;margin-bottom:14px">👾</div>' +
     '<div style="font-size:22px;font-weight:600;letter-spacing:.05em">Tap to wake up</div>' +
-    '<div style="font-size:13px;opacity:.5;margin-top:8px;letter-spacing:.08em">swipe to move · ⚡ to shatter</div>';
+    '<div style="font-size:13px;opacity:.5;margin-top:8px;letter-spacing:.08em">' +
+    'swipe to move · ⚡ to shatter</div>';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
   function activate() {
-    if (sensorsReady) return;
-    sensorsReady = true;
     overlay.remove();
-    usingTelegramSensors = tryStartTelegramSensors();
-    if (!usingTelegramSensors) startBrowserSensors();
+    // Пробуем Telegram нативный API (iOS с новым Telegram)
+    const hasTg = startTelegramSensors();
+    // Если нет — пробуем браузерный (Android / десктоп)
+    if (!hasTg) startBrowserSensors();
     vibrate('light');
   }
 
@@ -265,7 +236,7 @@ function createStartScreen() {
 }
 
 // ============================================================
-// КНОПКА ТРЯСКИ (маленькая, в правом нижнем углу)
+// КНОПКА ТРЯСКИ ⚡ (правый нижний угол)
 // ============================================================
 
 function createShakeButton() {
@@ -274,31 +245,32 @@ function createShakeButton() {
   btn.style.cssText = [
     'position:fixed',
     'right:16px',
-    'bottom:calc(16px + env(safe-area-inset-bottom))',
+    'bottom:calc(20px + env(safe-area-inset-bottom))',
     'z-index:8000',
-    'width:52px','height:52px',
+    'width:54px','height:54px',
     'border-radius:50%',
     'background:rgba(184,92,255,0.18)',
     'border:1.5px solid rgba(184,92,255,0.55)',
-    'color:#B85CFF','font-size:22px',
+    'color:#B85CFF','font-size:24px',
     'cursor:pointer',
     '-webkit-tap-highlight-color:transparent',
     'touch-action:manipulation',
-    'display:flex','align-items:center','justify-content:center'
+    'display:flex','align-items:center','justify-content:center',
+    'padding:0'
   ].join(';');
-
-  const doShake = (e) => {
+  btn.addEventListener('touchstart', e => {
     e.preventDefault();
     triggerShake();
-  };
-  btn.addEventListener('touchstart', doShake, { passive: false });
-  btn.addEventListener('mousedown',  doShake);
+  }, { passive: false });
+  btn.addEventListener('mousedown', e => {
+    e.preventDefault();
+    triggerShake();
+  });
   document.body.appendChild(btn);
 }
 
 // ============================================================
-// СВАЙП — основное управление на мобиле
-// Медленный свайп = наклон, быстрый свайп = импульс
+// СВАЙП / ТАП — основное управление
 // ============================================================
 
 const TILT_IMPULSE_ASSEMBLED = 0.225;
@@ -306,42 +278,37 @@ const TILT_IMPULSE_SCATTERED = 0.688;
 
 let touchStartX = 0, touchStartY = 0;
 let touchLastX  = 0, touchLastY  = 0;
-let touchStartTime = 0;
 
 stage.addEventListener('touchstart', e => {
   const t = e.touches[0];
   touchStartX = touchLastX = t.clientX;
   touchStartY = touchLastY = t.clientY;
-  touchStartTime = Date.now();
 }, { passive: true });
 
 stage.addEventListener('touchmove', e => {
-  if (!sensorsReady) return;
   const t = e.touches[0];
   const dx = t.clientX - touchLastX;
   const dy = t.clientY - touchLastY;
   touchLastX = t.clientX;
   touchLastY = t.clientY;
-  if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
-    noteInteraction();
-    const norm = Math.hypot(dx, dy) || 1;
-    // Сила пропорциональна скорости движения пальца
-    const speed = Math.hypot(dx, dy);
-    const power = Math.min(speed / 8, 1.5);
-    applyTilt((dx / norm) * power, (dy / norm) * power);
-  }
+
+  const dist = Math.hypot(dx, dy);
+  if (dist < 1) return;
+
+  noteInteraction();
+  const norm = dist;
+  // Сила = скорость пальца, зажатая в [0.2, 2.0]
+  const power = Math.max(0.2, Math.min(2.0, dist / 6));
+  applyTilt((dx / norm) * power, (dy / norm) * power);
 }, { passive: true });
 
 stage.addEventListener('touchend', e => {
-  if (!sensorsReady) return;
   const totalDist = Math.hypot(
     e.changedTouches[0].clientX - touchStartX,
     e.changedTouches[0].clientY - touchStartY
   );
-  const duration = Date.now() - touchStartTime;
-
   if (totalDist < 12) {
-    // Тап
+    // Тап — радость
     noteInteraction();
     setEmotion('happy');
     vibrate('light');
@@ -351,7 +318,7 @@ stage.addEventListener('touchend', e => {
   }
 }, { passive: true });
 
-// Десктоп
+// Десктоп — клик и клавиши
 pet.addEventListener('mousedown', () => {
   noteInteraction(); setEmotion('happy');
   applyImpulseToGroup('eye-left',  0, -0.75, { outer: 1.0, core: 0.5, highlight: 0.1 });
@@ -361,6 +328,10 @@ pet.addEventListener('mousedown', () => {
 
 window.addEventListener('keydown', e => {
   if (e.code === 'Space' && !shakeActive) triggerShake();
+  if (e.code === 'ArrowLeft')  applyTilt(-1,  0);
+  if (e.code === 'ArrowRight') applyTilt( 1,  0);
+  if (e.code === 'ArrowUp')    applyTilt( 0, -1);
+  if (e.code === 'ArrowDown')  applyTilt( 0,  1);
 });
 
 // ============================================================
@@ -372,9 +343,12 @@ function applyTilt(ix, iy) {
     applyTiltToAll(ix * TILT_IMPULSE_SCATTERED, iy * TILT_IMPULSE_SCATTERED);
   } else {
     const f = TILT_IMPULSE_ASSEMBLED;
-    applyImpulseToGroup('eye-left',  ix * f, iy * f, { outer: 1.0, core: 0.4, highlight: 0.15 });
-    applyImpulseToGroup('eye-right', ix * f, iy * f, { outer: 1.0, core: 0.4, highlight: 0.15 });
-    applyImpulseToGroup('mouth', ix * f * 0.5, iy * f * 0.5, { outer: 1.0, core: 0.4, highlight: 0.15 });
+    applyImpulseToGroup('eye-left',  ix * f, iy * f,
+      { outer: 1.0, core: 0.4, highlight: 0.15 });
+    applyImpulseToGroup('eye-right', ix * f, iy * f,
+      { outer: 1.0, core: 0.4, highlight: 0.15 });
+    applyImpulseToGroup('mouth', ix * f * 0.5, iy * f * 0.5,
+      { outer: 1.0, core: 0.4, highlight: 0.15 });
   }
 }
 
