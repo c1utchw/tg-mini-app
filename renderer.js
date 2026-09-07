@@ -99,14 +99,7 @@ function enableMotion() {
 }
 
 function requestMotionPermission() {
-  if (typeof DeviceMotionEvent !== 'undefined' &&
-      typeof DeviceMotionEvent.requestPermission === 'function') {
-    DeviceMotionEvent.requestPermission()
-      .then(state => { if (state === 'granted') enableMotion(); })
-      .catch(() => enableMotion());
-  } else {
-    enableMotion();
-  }
+  // Не вызываем здесь — только из прямого user gesture в activate()
 }
 
 // ============================================================
@@ -143,14 +136,7 @@ function enableOrientation() {
 }
 
 function requestOrientationPermission() {
-  if (typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function') {
-    DeviceOrientationEvent.requestPermission()
-      .then(state => { if (state === 'granted') enableOrientation(); })
-      .catch(() => enableOrientation());
-  } else {
-    enableOrientation();
-  }
+  // Не вызываем здесь — только из прямого user gesture в activate()
 }
 
 function calibrateGyro() {
@@ -217,8 +203,27 @@ function createStartScreen() {
     if (sensorsReady) return;
     sensorsReady = true;
     overlay.remove();
-    requestMotionPermission();
-    requestOrientationPermission();
+
+    // iOS 13+: requestPermission ДОЛЖЕН вызываться прямо в обработчике
+    // пользовательского жеста — без setTimeout, без .then промисов до вызова
+    const motionPerm = (typeof DeviceMotionEvent !== 'undefined' &&
+                        typeof DeviceMotionEvent.requestPermission === 'function')
+      ? DeviceMotionEvent.requestPermission()
+      : Promise.resolve('granted');
+
+    const orientPerm = (typeof DeviceOrientationEvent !== 'undefined' &&
+                        typeof DeviceOrientationEvent.requestPermission === 'function')
+      ? DeviceOrientationEvent.requestPermission()
+      : Promise.resolve('granted');
+
+    motionPerm.then(s => {
+      if (s === 'granted') enableMotion();
+    }).catch(() => enableMotion());
+
+    orientPerm.then(s => {
+      if (s === 'granted') enableOrientation();
+    }).catch(() => enableOrientation());
+
     vibrate('light');
   }
 
