@@ -21,28 +21,25 @@ const SVG_X_MAX = 800;
 const SVG_Y_MIN =   0;
 const SVG_Y_MAX = 400;
 
-// Параметры физики для режима assembled (покой)
+// Параметры физики для режима assembled (покой) — +25% к скорости (k, n)
 const PARAMS_ASSEMBLED = {
-  outer:     { k: 0.04, d: 0.82, n: 0.28, max: 7.0  },
-  core:      { k: 0.07, d: 0.85, n: 0.14, max: 3.5  },
-  highlight: { k: 0.14, d: 0.88, n: 0.05, max: 1.2  },
+  outer:     { k: 0.050, d: 0.82, n: 0.35, max: 7.0  },
+  core:      { k: 0.088, d: 0.85, n: 0.175, max: 3.5  },
+  highlight: { k: 0.175, d: 0.88, n: 0.063, max: 1.2  },
 };
 
-// Параметры физики для режима scattered (свободный полёт)
-// Пружина к home очень слабая (кристаллики не возвращаются сами),
-// вместо неё — слабое притяжение к "угловой цели"
+// Параметры физики для режима scattered — +25%
 const PARAMS_SCATTERED = {
-  outer:     { k: 0.008, d: 0.97, n: 0.22, max: 9999 },
-  core:      { k: 0.010, d: 0.97, n: 0.14, max: 9999 },
-  highlight: { k: 0.012, d: 0.97, n: 0.08, max: 9999 },
+  outer:     { k: 0.010, d: 0.97, n: 0.275, max: 9999 },
+  core:      { k: 0.013, d: 0.97, n: 0.175, max: 9999 },
+  highlight: { k: 0.015, d: 0.97, n: 0.100, max: 9999 },
 };
 
-// Параметры физики для режима reassembling (сборка домой)
-// Сильная пружина + высокое затухание = быстрый плавный возврат
+// Параметры физики для режима reassembling (сборка домой) — +25%
 const PARAMS_REASSEMBLING = {
-  outer:     { k: 0.18, d: 0.80, n: 0.05, max: 9999 },
-  core:      { k: 0.22, d: 0.82, n: 0.03, max: 9999 },
-  highlight: { k: 0.28, d: 0.84, n: 0.01, max: 9999 },
+  outer:     { k: 0.225, d: 0.80, n: 0.063, max: 9999 },
+  core:      { k: 0.275, d: 0.82, n: 0.038, max: 9999 },
+  highlight: { k: 0.350, d: 0.84, n: 0.013, max: 9999 },
 };
 
 // Текущий режим — читается в Shard.tick()
@@ -220,7 +217,7 @@ function applyImpulseToGroup(groupId, ix, iy, scaleByType) {
 // Переключиться в scattered: назначить угловые цели и дать импульс
 function enterScattered() {
   PHYSICS_MODE = 'scattered';
-  const force = 14;
+  const force = 17.5; // +25%
   SHARDS.forEach(shard => {
     shard.assignScatterTarget();
     // Начальный импульс в сторону цели

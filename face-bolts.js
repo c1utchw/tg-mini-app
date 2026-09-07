@@ -112,6 +112,9 @@ class Bolt {
     const t = Math.min((maxDist - appearDist) / (maxOpDist - appearDist), 1.0);
     const opacity = t * maxOpacity;
 
+    // Вибрация пропорционально яркости молнии (лёгкая)
+    if (typeof window.onBoltVisible === 'function') window.onBoltVisible(opacity);
+
     // Дрожание средней точки
     this._flickerTimer += dt;
     if (this._flickerTimer >= this._flickerChange) {
@@ -134,6 +137,8 @@ class Bolt {
     this.state = 'snapped';
     // Вспышка: кратковременно ярко, потом гаснет
     this.el.setAttribute('opacity', '1');
+    // Вибрация при разрыве молнии (средняя)
+    if (typeof window.onBoltSnap === 'function') window.onBoltSnap();
     setTimeout(() => {
       if (this.state === 'snapped') this.el.setAttribute('opacity', '0');
     }, 60);
