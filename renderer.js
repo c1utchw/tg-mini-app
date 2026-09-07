@@ -1,19 +1,14 @@
 // ============================================================
 // renderer.js — Telegram Mini App
-// Наклон телефона → кристаллики ссыпаются
-// Тряска телефона → разлёт / сборка
-// Тап → радость
-// Вибрация через Telegram HapticFeedback
+// Сенсоры: Telegram.WebApp.DeviceOrientation + Accelerometer (Bot API 8.0+)
+// Fallback: DeviceOrientationEvent / DeviceMotionEvent
 // ============================================================
 
 const pet   = document.getElementById('pet');
 const stage = document.getElementById('stage');
 
-// Telegram SDK
-if (window.Telegram && window.Telegram.WebApp) {
-  Telegram.WebApp.ready();
-  Telegram.WebApp.expand();
-}
+const TG = window.Telegram && window.Telegram.WebApp;
+if (TG) { TG.ready(); TG.expand(); }
 
 // ============================================================
 // ВИБРАЦИЯ
@@ -21,8 +16,8 @@ if (window.Telegram && window.Telegram.WebApp) {
 
 function vibrate(pattern) {
   try {
-    if (window.Telegram && window.Telegram.WebApp && Telegram.WebApp.HapticFeedback) {
-      const hf = Telegram.WebApp.HapticFeedback;
+    if (TG && TG.HapticFeedback) {
+      const hf = TG.HapticFeedback;
       if (pattern === 'light')  { hf.impactOccurred('light');  return; }
       if (pattern === 'medium') { hf.impactOccurred('medium'); return; }
       if (pattern === 'heavy')  { hf.impactOccurred('heavy');  return; }
@@ -67,24 +62,16 @@ function noteInteraction() {
 }
 
 // ============================================================
-// ТРЯСКА (DeviceMotion)
+// ТРЯСКА
 // ============================================================
 
 let shakeActive   = false;
 let lastShakeTime = 0;
-const SHAKE_THRESHOLD = 22;
+const SHAKE_THRESHOLD = 20;
 const SHAKE_COOLDOWN  = 1200;
 
-let prevAx = 0, prevAy = 0, prevAz = 0;
-
-function onDeviceMotion(e) {
-  const acc = e.accelerationIncludingGravity;
-  if (!acc) return;
-  const ax = acc.x || 0;
-  const ay = acc.y || 0;
-  const az = acc.z || 0;
-  const jerk = Math.hypot(ax - prevAx, ay - prevAy, az - prevAz);
-  prevAx = ax; prevAy = ay; prevAz = az;
+function checkShake(ax, ay, az, prevX, prevY, prevZ) {
+  const jerk = Math.hypot(ax - prevX, ay - prevY, az - prevZ);
   if (jerk > SHAKE_THRESHOLD) {
     const now = Date.now();
     if (now - lastShakeTime > SHAKE_COOLDOWN) {
@@ -94,16 +81,9 @@ function onDeviceMotion(e) {
   }
 }
 
-function enableMotion() {
-  window.addEventListener('devicemotion', onDeviceMotion, { passive: true });
-}
-
-function requestMotionPermission() {
-  // Не вызываем здесь — только из прямого user gesture в activate()
-}
-
 // ============================================================
-// ГИРОСКОП — НАКЛОН (DeviceOrientation)
+// ГИРОСКОП + АКСЕЛЕРОМЕТР
+// Приоритет: Telegram.WebApp нативный API → браузерный fallback
 // ============================================================
 
 let gyroEnabled   = false;
@@ -119,24 +99,87 @@ const GYRO_STRENGTH  = 0.8;
 
 let neutralBeta  = null;
 let neutralGamma = null;
-let calibFrames  = 0;
-let calibSumB    = 0;
-let calibSumG    = 0;
+let calibFrames  = 0, calibSumB = 0, calibSumG = 0;
 const CALIB_FRAMES = 30;
 
-function onDeviceOrientation(e) {
-  if (e.beta === null || e.beta === undefined) return;
-  gyroBeta    = e.beta;
-  gyroGamma   = e.gamma;
-  gyroEnabled = true;
+// Для тряски через Telegram Accelerometer
+let prevTgX = 0, prevTgY = 0, prevTgZ = 0;
+// Для тряски через DeviceMotion (fallback)
+let prevAx = 0, prevAy = 0, prevAz = 0;
+
+let usingTelegramSensors = false;
+
+function startTelegramSensors() {
+  if (!TG) return false;
+
+  let ok = false;
+
+  // DeviceOrientation (наклон)
+  if (TG.DeviceOrientation && typeof TG.DeviceOrientation.start === 'function') {
+    TG.DeviceOrientation.start({ refresh_rate: 50, need_absolute: false });
+    TG.DeviceOrientation.onChanged(() => {
+      gyroBeta    = TG.DeviceOrientation.beta  || 0;
+      gyroGamma   = TG.DeviceOrientation.gamma || 0;
+      gyroEnabled = true;
+    });
+    ok = true;
+  }
+
+  // Accelerometer (тряска)
+  if (TG.Accelerometer && typeof TG.Accelerometer.start === 'function') {
+    TG.Accelerometer.start({ refresh_rate: 60 });
+    TG.Accelerometer.onChanged(() => {
+      const ax = TG.Accelerometer.x || 0;
+      const ay = TG.Accelerometer.y || 0;
+      const az = TG.Accelerometer.z || 0;
+      checkShake(ax, ay, az, prevTgX, prevTgY, prevTgZ);
+      prevTgX = ax; prevTgY = ay; prevTgZ = az;
+    });
+    ok = true;
+  }
+
+  return ok;
 }
 
-function enableOrientation() {
-  window.addEventListener('deviceorientation', onDeviceOrientation, { passive: true });
-}
+function startBrowserSensors() {
+  // DeviceOrientation fallback
+  const startOrientation = () => {
+    window.addEventListener('deviceorientation', e => {
+      if (e.beta == null) return;
+      gyroBeta  = e.beta;
+      gyroGamma = e.gamma;
+      gyroEnabled = true;
+    }, { passive: true });
+  };
 
-function requestOrientationPermission() {
-  // Не вызываем здесь — только из прямого user gesture в activate()
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission()
+      .then(s => { if (s === 'granted') startOrientation(); })
+      .catch(() => startOrientation());
+  } else {
+    startOrientation();
+  }
+
+  // DeviceMotion fallback (тряска)
+  const startMotion = () => {
+    window.addEventListener('devicemotion', e => {
+      const acc = e.accelerationIncludingGravity;
+      if (!acc) return;
+      const ax = acc.x || 0, ay = acc.y || 0, az = acc.z || 0;
+      checkShake(ax, ay, az, prevAx, prevAy, prevAz);
+      prevAx = ax; prevAy = ay; prevAz = az;
+    }, { passive: true });
+  };
+
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission()
+      .then(s => { if (s === 'granted') startMotion(); })
+      .catch(() => startMotion());
+  } else {
+    startMotion();
+  }
 }
 
 function calibrateGyro() {
@@ -150,29 +193,6 @@ function calibrateGyro() {
   }
 }
 
-const TILT_IMPULSE_ASSEMBLED = 0.225;
-const TILT_IMPULSE_SCATTERED = 0.688;
-
-function applyGyroTilt() {
-  if (!gyroEnabled) return;
-  calibrateGyro();
-  if (neutralBeta === null) return;
-
-  const rawGamma = gyroGamma - neutralGamma;
-  const rawBeta  = gyroBeta  - neutralBeta;
-
-  filteredGamma += (rawGamma - filteredGamma) * GYRO_FILTER;
-  filteredBeta  += (rawBeta  - filteredBeta)  * GYRO_FILTER;
-
-  const dg = Math.abs(filteredGamma) < GYRO_DEADZONE ? 0 : filteredGamma;
-  const db = Math.abs(filteredBeta)  < GYRO_DEADZONE ? 0 : filteredBeta;
-  if (dg === 0 && db === 0) return;
-
-  const ix = Math.max(-1, Math.min(1, dg / GYRO_MAX_ANGLE));
-  const iy = Math.max(-1, Math.min(1, db / GYRO_MAX_ANGLE));
-  applyTilt(ix * GYRO_STRENGTH, iy * GYRO_STRENGTH);
-}
-
 // ============================================================
 // ЭКРАН "TAP TO START"
 // ============================================================
@@ -181,12 +201,11 @@ let sensorsReady = false;
 
 function createStartScreen() {
   const overlay = document.createElement('div');
-  overlay.id = 'start-overlay';
   overlay.style.cssText = [
-    'position:fixed', 'inset:0', 'z-index:9999',
-    'background:rgba(0,0,0,0.8)',
-    'display:flex', 'align-items:center', 'justify-content:center',
-    'cursor:pointer', 'touch-action:manipulation'
+    'position:fixed','inset:0','z-index:9999',
+    'background:rgba(0,0,0,0.82)',
+    'display:flex','align-items:center','justify-content:center',
+    'cursor:pointer','touch-action:manipulation'
   ].join(';');
 
   const box = document.createElement('div');
@@ -195,7 +214,6 @@ function createStartScreen() {
     '<div style="font-size:54px;margin-bottom:14px">👾</div>' +
     '<div style="font-size:22px;font-weight:600;letter-spacing:.05em">Tap to wake up</div>' +
     '<div style="font-size:13px;opacity:.5;margin-top:8px;letter-spacing:.08em">shake to shatter · tilt to move</div>';
-
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
@@ -204,25 +222,13 @@ function createStartScreen() {
     sensorsReady = true;
     overlay.remove();
 
-    // iOS 13+: requestPermission ДОЛЖЕН вызываться прямо в обработчике
-    // пользовательского жеста — без setTimeout, без .then промисов до вызова
-    const motionPerm = (typeof DeviceMotionEvent !== 'undefined' &&
-                        typeof DeviceMotionEvent.requestPermission === 'function')
-      ? DeviceMotionEvent.requestPermission()
-      : Promise.resolve('granted');
+    // Пробуем Telegram нативный API (работает в WKWebView на iOS)
+    usingTelegramSensors = startTelegramSensors();
 
-    const orientPerm = (typeof DeviceOrientationEvent !== 'undefined' &&
-                        typeof DeviceOrientationEvent.requestPermission === 'function')
-      ? DeviceOrientationEvent.requestPermission()
-      : Promise.resolve('granted');
-
-    motionPerm.then(s => {
-      if (s === 'granted') enableMotion();
-    }).catch(() => enableMotion());
-
-    orientPerm.then(s => {
-      if (s === 'granted') enableOrientation();
-    }).catch(() => enableOrientation());
+    // Если не сработало — пробуем браузерный (работает на Android / десктопе)
+    if (!usingTelegramSensors) {
+      startBrowserSensors();
+    }
 
     vibrate('light');
   }
@@ -234,6 +240,9 @@ function createStartScreen() {
 // ============================================================
 // СВАЙП / ТАП
 // ============================================================
+
+const TILT_IMPULSE_ASSEMBLED = 0.225;
+const TILT_IMPULSE_SCATTERED = 0.688;
 
 let touchStartX = 0, touchStartY = 0;
 let touchLastX  = 0, touchLastY  = 0;
@@ -260,11 +269,11 @@ stage.addEventListener('touchmove', e => {
 
 stage.addEventListener('touchend', e => {
   if (!sensorsReady) return;
-  const totalDist = Math.hypot(
+  const d = Math.hypot(
     e.changedTouches[0].clientX - touchStartX,
     e.changedTouches[0].clientY - touchStartY
   );
-  if (totalDist < 12) {
+  if (d < 12) {
     noteInteraction();
     setEmotion('happy');
     vibrate('light');
@@ -274,10 +283,8 @@ stage.addEventListener('touchend', e => {
   }
 }, { passive: true });
 
-// Десктоп
 pet.addEventListener('mousedown', () => {
-  noteInteraction();
-  setEmotion('happy');
+  noteInteraction(); setEmotion('happy');
   applyImpulseToGroup('eye-left',  0, -0.75, { outer: 1.0, core: 0.5, highlight: 0.1 });
   applyImpulseToGroup('eye-right', 0, -0.75, { outer: 1.0, core: 0.5, highlight: 0.1 });
   setTimeout(() => { if (emotions.current === 'happy') setEmotion('idle'); }, 1200);
@@ -290,6 +297,23 @@ window.addEventListener('keydown', e => {
 // ============================================================
 // НАКЛОН
 // ============================================================
+
+function applyGyroTilt() {
+  if (!gyroEnabled) return;
+  calibrateGyro();
+  if (neutralBeta === null) return;
+
+  filteredGamma += ((gyroGamma - neutralGamma) - filteredGamma) * GYRO_FILTER;
+  filteredBeta  += ((gyroBeta  - neutralBeta)  - filteredBeta)  * GYRO_FILTER;
+
+  const dg = Math.abs(filteredGamma) < GYRO_DEADZONE ? 0 : filteredGamma;
+  const db = Math.abs(filteredBeta)  < GYRO_DEADZONE ? 0 : filteredBeta;
+  if (dg === 0 && db === 0) return;
+
+  const ix = Math.max(-1, Math.min(1, dg / GYRO_MAX_ANGLE));
+  const iy = Math.max(-1, Math.min(1, db / GYRO_MAX_ANGLE));
+  applyTilt(ix * GYRO_STRENGTH, iy * GYRO_STRENGTH);
+}
 
 function applyTilt(ix, iy) {
   if (getFaceState() === 'scattered') {
@@ -310,13 +334,8 @@ function triggerShake() {
   if (shakeActive) return;
   shakeActive = true;
   noteInteraction();
-  if (getFaceState() === 'assembled') {
-    setEmotion('scared');
-    vibrate('heavy');
-  } else {
-    setEmotion('happy');
-    vibrate('medium');
-  }
+  if (getFaceState() === 'assembled') { setEmotion('scared'); vibrate('heavy'); }
+  else                                { setEmotion('happy');  vibrate('medium'); }
   triggerShatterEffect();
   setTimeout(() => {
     shakeActive = false;
@@ -325,37 +344,63 @@ function triggerShake() {
 }
 
 // ============================================================
-// ВИБРАЦИЯ ОТ МОЛНИЙ (колбэки из face-bolts.js)
+// ВИБРАЦИЯ ОТ МОЛНИЙ
 // ============================================================
 
 let lastBoltVibrateTime = 0;
 let lastSnapVibrateTime = 0;
-const BOLT_VIBRATE_INTERVAL = 300;
-const SNAP_VIBRATE_INTERVAL = 150;
 
 window.onBoltVisible = function(opacity) {
   if (opacity < 0.3) return;
   const now = Date.now();
-  if (now - lastBoltVibrateTime < BOLT_VIBRATE_INTERVAL) return;
+  if (now - lastBoltVibrateTime < 300) return;
   lastBoltVibrateTime = now;
   vibrate('light');
 };
 
 window.onBoltSnap = function() {
   const now = Date.now();
-  if (now - lastSnapVibrateTime < SNAP_VIBRATE_INTERVAL) return;
+  if (now - lastSnapVibrateTime < 150) return;
   lastSnapVibrateTime = now;
   vibrate('medium');
 };
+
+// ============================================================
+// ОТЛАДОЧНЫЙ ХУД
+// ============================================================
+
+let debugEl = null;
+
+function createDebugHud() {
+  debugEl = document.createElement('div');
+  debugEl.style.cssText = [
+    'position:fixed','top:8px','left:8px','z-index:8888',
+    'background:rgba(0,0,0,0.7)','color:#0ff',
+    'font:11px/1.5 monospace','padding:6px 8px',
+    'border-radius:6px','pointer-events:none','white-space:pre'
+  ].join(';');
+  document.body.appendChild(debugEl);
+}
+
+function updateDebugHud() {
+  if (!debugEl) return;
+  debugEl.textContent =
+    'gyro: '     + (gyroEnabled ? 'ON' : 'OFF') + '\n' +
+    'tg api: '   + (usingTelegramSensors ? 'YES' : 'no') + '\n' +
+    'beta:  '    + gyroBeta.toFixed(1)  + '\n' +
+    'gamma: '    + gyroGamma.toFixed(1) + '\n' +
+    'neutral b: '+ (neutralBeta  !== null ? neutralBeta.toFixed(1)  : '...') + '\n' +
+    'neutral g: '+ (neutralGamma !== null ? neutralGamma.toFixed(1) : '...') + '\n' +
+    'sensors: '  + (sensorsReady ? 'ready' : 'waiting');
+}
 
 // ============================================================
 // СКУКА
 // ============================================================
 
 function updateBoredom() {
-  if (Date.now() - lastInteractionTime > BORED_TIMEOUT_MS && emotions.current === 'idle') {
+  if (Date.now() - lastInteractionTime > BORED_TIMEOUT_MS && emotions.current === 'idle')
     setEmotion('bored');
-  }
 }
 
 // ============================================================
@@ -374,38 +419,6 @@ function tick() {
   updateBoredom();
   updateDebugHud();
   requestAnimationFrame(tick);
-}
-
-// ============================================================
-// ОТЛАДОЧНЫЙ ХУД (убрать когда всё заработает)
-// ============================================================
-
-let debugEl = null;
-
-function createDebugHud() {
-  debugEl = document.createElement('div');
-  debugEl.style.cssText = [
-    'position:fixed', 'top:8px', 'left:8px', 'z-index:8888',
-    'background:rgba(0,0,0,0.7)', 'color:#0ff',
-    'font:11px/1.5 monospace', 'padding:6px 8px',
-    'border-radius:6px', 'pointer-events:none',
-    'white-space:pre'
-  ].join(';');
-  document.body.appendChild(debugEl);
-}
-
-function updateDebugHud() {
-  if (!debugEl) return;
-  debugEl.textContent =
-    'gyro: ' + (gyroEnabled ? 'ON' : 'OFF') + '\n' +
-    'beta:  ' + gyroBeta.toFixed(1) + '\n' +
-    'gamma: ' + gyroGamma.toFixed(1) + '\n' +
-    'neutral b: ' + (neutralBeta  !== null ? neutralBeta.toFixed(1)  : '...') + '\n' +
-    'neutral g: ' + (neutralGamma !== null ? neutralGamma.toFixed(1) : '...') + '\n' +
-    'filt b: ' + filteredBeta.toFixed(2) + '\n' +
-    'filt g: ' + filteredGamma.toFixed(2) + '\n' +
-    'motion: ' + (typeof onDeviceMotion === 'function' ? 'listener OK' : 'NO') + '\n' +
-    'sensors: ' + (sensorsReady ? 'ready' : 'waiting');
 }
 
 // ============================================================
