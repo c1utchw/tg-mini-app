@@ -1,10 +1,5 @@
 // ============================================================
 // renderer.js — Telegram Mini App
-//
-// Гравитация: наклон телефона смещает точку покоя кристалликов.
-// Телефон лежит горизонтально = кристаллики по центру.
-// Телефон наклонён вправо = кристаллики смещаются вправо.
-// Свайп = разовый импульс. Кнопка ⚡ = тряска/сборка.
 // ============================================================
 
 const pet   = document.getElementById('pet');
@@ -89,27 +84,29 @@ function triggerShake() {
 }
 
 // ============================================================
-// СЕНСОРЫ УСТРОЙСТВА
+// ГИРОСКОП
 // ============================================================
 
-let gyroEnabled  = false;
-let gyroBeta     = 0;   // наклон вперёд/назад
-let gyroGamma    = 0;   // наклон влево/вправо
-
-// Низкочастотный фильтр для плавности
+let gyroEnabled   = false;
+let gyroBeta      = 0;
+let gyroGamma     = 0;
 let filteredBeta  = 0;
 let filteredGamma = 0;
-const GYRO_FILTER = 0.08; // медленно сглаживает → плавное "течение"
+let neutralBeta   = null;
+let neutralGamma  = null;
+let calibFrames   = 0, calibSumB = 0, calibSumG = 0;
 
-// Калибровка нейтрального положения (первые 30 кадров)
-let neutralBeta  = null;
-let neutralGamma = null;
-let calibFrames  = 0, calibSumB = 0, calibSumG = 0;
-const CALIB_FRAMES = 30;
+// Быстрый фильтр — отклик за ~3-4 кадра вместо 10+
+const GYRO_FILTER    = 0.25;
+const CALIB_FRAMES   = 20;
+// Угол при котором достигается максимальное смещение — чем меньше, тем чувствительнее
+const GYRO_MAX_ANGLE = 25.0;
+// Максимальное смещение точки покоя в SVG-единицах
+const GRAVITY_MAX    = 5.5;
 
-// Для тряски через акселерометр
+// Акселерометр для тряски
 let prevAccX = 0, prevAccY = 0, prevAccZ = 0;
-const SHAKE_THRESHOLD = 20;
+const SHAKE_THRESHOLD = 18; // чуть чувствительнее
 
 function checkAccShake(ax, ay, az) {
   const jerk = Math.hypot(ax - prevAccX, ay - prevAccY, az - prevAccZ);
@@ -125,7 +122,7 @@ function startTelegramSensors() {
   let ok = false;
   try {
     if (TG.DeviceOrientation && typeof TG.DeviceOrientation.start === 'function') {
-      TG.DeviceOrientation.start({ refresh_rate: 50, need_absolute: false });
+      TG.DeviceOrientation.start({ refresh_rate: 30, need_absolute: false });
       TG.DeviceOrientation.onChanged(() => {
         gyroBeta    = TG.DeviceOrientation.beta  || 0;
         gyroGamma   = TG.DeviceOrientation.gamma || 0;
@@ -184,32 +181,22 @@ function calibrateGyro() {
   }
 }
 
-// Максимальное смещение гравитации (SVG-единицы)
-// outer max = 7.0 — берём чуть меньше чтобы оставался зазор
-const GRAVITY_MAX    = 5.5;
-const GYRO_MAX_ANGLE = 45.0; // градусов для полного отклонения
-
 function applyGyroTilt() {
   if (!gyroEnabled) return;
   calibrateGyro();
   if (neutralBeta === null) return;
 
-  // Отклонение от нейтрали
   const rawG = gyroGamma - neutralGamma;
   const rawB = gyroBeta  - neutralBeta;
 
-  // Плавный фильтр
   filteredGamma += (rawG - filteredGamma) * GYRO_FILTER;
   filteredBeta  += (rawB - filteredBeta)  * GYRO_FILTER;
 
-  // Нормируем в [-1, 1] и переводим в SVG-единицы гравитации
   const gx = Math.max(-1, Math.min(1, filteredGamma / GYRO_MAX_ANGLE)) * GRAVITY_MAX;
   const gy = Math.max(-1, Math.min(1, filteredBeta  / GYRO_MAX_ANGLE)) * GRAVITY_MAX;
 
-  // Устанавливаем гравитацию (смещает точку покоя пружины)
   setGravity(gx, gy);
 
-  // В разлёте — дополнительно толкаем осколки
   if (getFaceState() === 'scattered') {
     applyTiltToAll(gx * 0.04, gy * 0.04);
   }
@@ -248,7 +235,7 @@ function createStartScreen() {
 }
 
 // ============================================================
-// КНОПКА ТРЯСКИ ⚡
+// КНОПКА ⚡
 // ============================================================
 
 function createShakeButton() {
@@ -265,14 +252,13 @@ function createShakeButton() {
     'touch-action:manipulation','padding:0',
     'display:flex','align-items:center','justify-content:center'
   ].join(';');
-  btn.addEventListener('touchstart', e => { e.preventDefault(); triggerShake(); },
-    { passive: false });
-  btn.addEventListener('mousedown', e => { e.preventDefault(); triggerShake(); });
+  btn.addEventListener('touchstart', e => { e.preventDefault(); triggerShake(); }, { passive: false });
+  btn.addEventListener('mousedown',  e => { e.preventDefault(); triggerShake(); });
   document.body.appendChild(btn);
 }
 
 // ============================================================
-// СВАЙП / ТАП — разовые импульсы
+// СВАЙП / ТАП
 // ============================================================
 
 const TILT_IMPULSE_ASSEMBLED = 0.225;
@@ -297,7 +283,7 @@ stage.addEventListener('touchmove', e => {
   if (dist < 1) return;
   noteInteraction();
   const power = Math.max(0.2, Math.min(2.0, dist / 6));
-  applyImpulse(dx / dist * power, dy / dist * power);
+  applySwipeImpulse(dx / dist * power, dy / dist * power);
 }, { passive: true });
 
 stage.addEventListener('touchend', e => {
@@ -323,32 +309,23 @@ pet.addEventListener('mousedown', () => {
 });
 
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space') triggerShake();
-  // Стрелки — смещают гравитацию для теста на десктопе
+  if (e.code === 'Space') { triggerShake(); return; }
   const step = 1.5;
-  if (e.code === 'ArrowLeft')  setGravity(GRAVITY_X - step, GRAVITY_Y);
-  if (e.code === 'ArrowRight') setGravity(GRAVITY_X + step, GRAVITY_Y);
-  if (e.code === 'ArrowUp')    setGravity(GRAVITY_X, GRAVITY_Y - step);
-  if (e.code === 'ArrowDown')  setGravity(GRAVITY_X, GRAVITY_Y + step);
-  // R — сброс гравитации
+  if (e.code === 'ArrowLeft')  setGravity(getGravityX() - step, getGravityY());
+  if (e.code === 'ArrowRight') setGravity(getGravityX() + step, getGravityY());
+  if (e.code === 'ArrowUp')    setGravity(getGravityX(), getGravityY() - step);
+  if (e.code === 'ArrowDown')  setGravity(getGravityX(), getGravityY() + step);
   if (e.code === 'KeyR')       setGravity(0, 0);
 });
 
-// ============================================================
-// РАЗОВЫЙ ИМПУЛЬС (свайп)
-// ============================================================
-
-function applyImpulse(ix, iy) {
+function applySwipeImpulse(ix, iy) {
   if (getFaceState() === 'scattered') {
     applyTiltToAll(ix * TILT_IMPULSE_SCATTERED, iy * TILT_IMPULSE_SCATTERED);
   } else {
     const f = TILT_IMPULSE_ASSEMBLED;
-    applyImpulseToGroup('eye-left',  ix * f, iy * f,
-      { outer: 1.0, core: 0.4, highlight: 0.15 });
-    applyImpulseToGroup('eye-right', ix * f, iy * f,
-      { outer: 1.0, core: 0.4, highlight: 0.15 });
-    applyImpulseToGroup('mouth', ix * f * 0.5, iy * f * 0.5,
-      { outer: 1.0, core: 0.4, highlight: 0.15 });
+    applyImpulseToGroup('eye-left',  ix * f, iy * f, { outer: 1.0, core: 0.4, highlight: 0.15 });
+    applyImpulseToGroup('eye-right', ix * f, iy * f, { outer: 1.0, core: 0.4, highlight: 0.15 });
+    applyImpulseToGroup('mouth', ix * f * 0.5, iy * f * 0.5, { outer: 1.0, core: 0.4, highlight: 0.15 });
   }
 }
 
@@ -384,30 +361,28 @@ function updateBoredom() {
 }
 
 // ============================================================
-// ГЛАВНЫЙ ТИК
+// ГЛАВНЫЙ ТИК — оптимизирован
 // ============================================================
 
 let lastTickTime = performance.now();
+// Счётчик для скуки — не проверяем каждый кадр
+let boredCounter = 0;
 
 function tick() {
   const now = performance.now();
   const dt  = Math.min(now - lastTickTime, 50);
   lastTickTime = now;
+
   applyGyroTilt();
   tickPhysics(dt);
   tickBolts(dt);
-  updateBoredom();
-  // дебаг
-  dbg.textContent =
-    'gyro: '   + (gyroEnabled ? 'ON' : 'OFF') + '\n' +
-    'beta:  '  + gyroBeta.toFixed(1)  + '\n' +
-    'gamma: '  + gyroGamma.toFixed(1) + '\n' +
-    'nB: '     + (neutralBeta  !== null ? neutralBeta.toFixed(1)  : '...') + '\n' +
-    'nG: '     + (neutralGamma !== null ? neutralGamma.toFixed(1) : '...') + '\n' +
-    'fB: '     + filteredBeta.toFixed(2)  + '\n' +
-    'fG: '     + filteredGamma.toFixed(2) + '\n' +
-    'gx: '     + GRAVITY_X.toFixed(2) + '\n' +
-    'gy: '     + GRAVITY_Y.toFixed(2);
+
+  // Скука проверяем раз в 60 кадров (~1 сек)
+  if (++boredCounter >= 60) {
+    boredCounter = 0;
+    updateBoredom();
+  }
+
   requestAnimationFrame(tick);
 }
 
@@ -419,10 +394,4 @@ initPhysics();
 initBolts();
 createStartScreen();
 createShakeButton();
-
-// Дебаг-худ — покажет данные гироскопа
-const dbg = document.createElement('div');
-dbg.style.cssText = 'position:fixed;top:8px;left:8px;z-index:9998;background:rgba(0,0,0,.7);color:#0ff;font:11px/1.6 monospace;padding:6px 8px;border-radius:6px;pointer-events:none;white-space:pre';
-document.body.appendChild(dbg);
-
 requestAnimationFrame(tick);
