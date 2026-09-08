@@ -37,7 +37,7 @@ const BOLT_SNAP_DIST_NORMAL     = 25.0;
 const BOLT_SNAP_DIST_REASSEMBLE = 9999;
 
 // Амплитуда дрожания средней точки
-const BOLT_FLICKER_AMP = 3.5;
+const BOLT_FLICKER_AMP = 5.0; // больше дрожание = заметнее
 
 // Текущий режим молний: 'normal' | 'reassemble'
 let BOLT_MODE = 'normal';
@@ -190,16 +190,11 @@ function initBolts() {
 
   const TOLERANCE = 3.0;
 
-  // ---- Перемещаем все bolt-группы в самый низ SVG (под все кристаллики) ----
-  // В SVG "низ" = первый дочерний элемент (он рисуется первым, значит под остальными).
+  // ---- Перемещаем все bolt-группы В КОНЕЦ SVG (поверх всех кристалликов) ----
   const svg = document.getElementById('face-svg');
   const boltGroups = svg.querySelectorAll('.shard-layer-bolts');
-  // Вставляем все bolt-группы в начало SVG, сохраняя их порядок между собой
-  // (insertBefore с firstChild — каждая следующая окажется раньше предыдущей,
-  //  поэтому идём в обратном порядке)
-  const boltGroupsArray = Array.from(boltGroups).reverse();
-  boltGroupsArray.forEach(g => {
-    svg.insertBefore(g, svg.firstChild);
+  boltGroups.forEach(g => {
+    svg.appendChild(g); // в конец = поверх всего
   });
 
   document.querySelectorAll('.lightning-bolt').forEach(el => {

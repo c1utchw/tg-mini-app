@@ -297,7 +297,7 @@ function enterReassembling(onDone) {
   const shuffled = SHARDS.slice().sort(() => Math.random() - 0.5);
 
   // Волны: каждые WAVE_INTERVAL мс запускаем следующий кристалл
-  const WAVE_INTERVAL = 180; // мс между каждым кристаллом — медленнее = эпичнее
+  const WAVE_INTERVAL = 450; // ~2.5x медленнее (было 180мс)
 
   shuffled.forEach((shard, i) => {
     const delay = i * WAVE_INTERVAL + Math.random() * 60;
