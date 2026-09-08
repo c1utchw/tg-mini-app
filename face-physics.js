@@ -23,9 +23,11 @@ const PARAMS_SCATTERED = {
 };
 
 const PARAMS_REASSEMBLING = {
-  outer:     { k: 0.06,  d: 0.88, n: 0.02, max: 9999 },
-  core:      { k: 0.08,  d: 0.89, n: 0.01, max: 9999 },
-  highlight: { k: 0.12,  d: 0.90, n: 0.005, max: 9999 },
+  // Высокое d (затухание) — кристалл быстро теряет скорость у цели, вбивается как гвоздь
+  // Высокое k — жёсткая пружина удерживает у home после удара
+  outer:     { k: 0.22, d: 0.70, n: 0.01, max: 9999 },
+  core:      { k: 0.28, d: 0.72, n: 0.005, max: 9999 },
+  highlight: { k: 0.38, d: 0.75, n: 0.002, max: 9999 },
 };
 
 let PHYSICS_MODE = 'assembled';
@@ -189,6 +191,24 @@ class Shard {
       this._lastTy = ty;
       this.el.style.transform = `translate(${tx}px,${ty}px)`;
     }
+
+    // --- Удар о home в режиме reassembling ---
+    // Когда кристалл был далеко и теперь близко — он "врезался"
+    if (PHYSICS_MODE === 'reassembling' && !this._landed) {
+      const distNow = Math.hypot(this.dx, this.dy);
+      if (this._prevDist !== undefined && this._prevDist > 15 && distNow < 8) {
+        this._landed = true;
+        if (typeof window.onShardLanded === 'function') {
+          window.onShardLanded(this.id, this.homeX, this.homeY);
+        }
+      }
+      this._prevDist = distNow;
+    }
+    // Сброс флага при новом разлёте
+    if (PHYSICS_MODE === 'scattered') {
+      this._landed = false;
+      this._prevDist = undefined;
+    }
   }
 
   _detectType(el) {
@@ -273,33 +293,31 @@ function enterScattered() {
 function enterReassembling(onDone) {
   PHYSICS_MODE = 'reassembling';
 
-  // Сортируем кристаллики по расстоянию от home — ближние летят первыми
-  // Добавляем случайный разброс чтобы порядок был хаотичным
-  const sorted = SHARDS.slice().sort((a, b) => {
-    const da = Math.hypot(a.dx, a.dy) + (Math.random() - 0.5) * 80;
-    const db = Math.hypot(b.dx, b.dy) + (Math.random() - 0.5) * 80;
-    return da - db;
-  });
+  // Перемешиваем кристаллы случайно
+  const shuffled = SHARDS.slice().sort(() => Math.random() - 0.5);
 
-  // Запускаем кристаллики волнами — каждые WAVE_INTERVAL мс следующая группа
-  const WAVE_INTERVAL = 120; // мс между группами
-  const WAVE_SIZE     = 3;   // кристаллов в одной волне
+  // Волны: каждые WAVE_INTERVAL мс запускаем следующий кристалл
+  const WAVE_INTERVAL = 180; // мс между каждым кристаллом — медленнее = эпичнее
 
-  sorted.forEach((shard, i) => {
-    const delay = Math.floor(i / WAVE_SIZE) * WAVE_INTERVAL + Math.random() * 60;
+  shuffled.forEach((shard, i) => {
+    const delay = i * WAVE_INTERVAL + Math.random() * 60;
     setTimeout(() => {
       if (PHYSICS_MODE !== 'reassembling' && PHYSICS_MODE !== 'assembled') return;
-      // Даём сильный импульс к home (dx=0, dy=0)
-      const dist = Math.hypot(shard.dx, shard.dy);
+
+      // Резкий сильный импульс прямо к home — как метеорит
+      const dist  = Math.hypot(shard.dx, shard.dy);
       const angle = Math.atan2(-shard.dy, -shard.dx);
-      const mag = Math.min(dist * 0.5, 22);
-      shard.applyImpulse(Math.cos(angle) * mag, Math.sin(angle) * mag);
+      // Сила пропорциональна расстоянию, минимум 25 — всегда летит быстро
+      const mag = Math.max(25, dist * 0.8);
+      // Сбрасываем текущую скорость и даём точный импульс к цели
+      shard.vx = Math.cos(angle) * mag;
+      shard.vy = Math.sin(angle) * mag;
+
     }, delay);
   });
 
-  // Общее время сборки = (кол-во волн) * интервал + запас
-  const totalWaves = Math.ceil(sorted.length / WAVE_SIZE);
-  const totalTime  = totalWaves * WAVE_INTERVAL + 2000;
+  // Общее время = все кристаллы + запас на долёт последнего
+  const totalTime = shuffled.length * WAVE_INTERVAL + 3000;
 
   setTimeout(() => {
     PHYSICS_MODE = 'assembled';

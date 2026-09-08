@@ -235,6 +235,30 @@ function tickBolts(dt) {
   }
 }
 
+// Вспышка молний рядом с точкой (cx, cy) в радиусе radius SVG-единиц
+function flashBoltsNear(cx, cy, radius) {
+  for (let i = 0; i < BOLTS.length; i++) {
+    const b = BOLTS[i];
+    const d0 = Math.hypot(b.home0.x - cx, b.home0.y - cy);
+    const d2 = Math.hypot(b.home2.x - cx, b.home2.y - cy);
+    if (d0 < radius || d2 < radius) {
+      // Мгновенная вспышка
+      b.el.setAttribute('opacity', '1');
+      b.state = 'visible';
+      // Гаснет через 120мс
+      const el = b.el;
+      setTimeout(() => {
+        if (b.state !== 'visible') return;
+        el.setAttribute('opacity', '0.6');
+      }, 80);
+      setTimeout(() => {
+        if (b.state !== 'visible') return;
+        el.setAttribute('opacity', '0');
+      }, 200);
+    }
+  }
+}
+
 // ============================================================
 // Устаревшие функции — оставлены для совместимости с face-shatter.js.
 // Теперь молнии читают смещения сами из face-physics.js,
