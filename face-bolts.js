@@ -21,23 +21,22 @@
 // Расстояние отлёта (в SVG-единицах), при котором молния начинает появляться.
 // В assembled-режиме — высокий порог (молнии в покое не видны).
 // В reassembling — порог снижается программно через setBoltMode().
+// Молнии видны только когда кристалл активно летит к home
+// В reassemble режим убираем порог появления — молния видна только у летящего кристалла
 const BOLT_APPEAR_DIST_NORMAL      = 4.5;
-const BOLT_APPEAR_DIST_REASSEMBLE  = 0.5;  // почти сразу видны при сборке
+const BOLT_APPEAR_DIST_REASSEMBLE  = 8.0;  // видны только когда кристалл далеко от home
 
-// Расстояние максимальной яркости
 const BOLT_MAX_OPACITY_DIST_NORMAL     = 10.0;
-const BOLT_MAX_OPACITY_DIST_REASSEMBLE = 3.0;  // быстро набирают яркость
+const BOLT_MAX_OPACITY_DIST_REASSEMBLE = 40.0; // плавно набирают яркость по мере полёта
 
-// Максимальная opacity
 const BOLT_MAX_OPACITY_NORMAL     = 0.75;
-const BOLT_MAX_OPACITY_REASSEMBLE = 1.0;   // при сборке — полная яркость
+const BOLT_MAX_OPACITY_REASSEMBLE = 0.9;
 
-// Расстояние разрыва — в reassemble не рвём никогда (кристаллы летят издалека)
 const BOLT_SNAP_DIST_NORMAL     = 25.0;
 const BOLT_SNAP_DIST_REASSEMBLE = 9999;
 
 // Амплитуда дрожания средней точки
-const BOLT_FLICKER_AMP = 5.0; // больше дрожание = заметнее
+const BOLT_FLICKER_AMP = 2.5;
 
 // Текущий режим молний: 'normal' | 'reassemble'
 let BOLT_MODE = 'normal';
@@ -190,11 +189,13 @@ function initBolts() {
 
   const TOLERANCE = 3.0;
 
-  // ---- Перемещаем все bolt-группы В КОНЕЦ SVG (поверх всех кристалликов) ----
+  // Bolt-группы — под кристаллами в обычном режиме
+  // (в reassemble они всё равно видны поверх через opacity)
   const svg = document.getElementById('face-svg');
   const boltGroups = svg.querySelectorAll('.shard-layer-bolts');
-  boltGroups.forEach(g => {
-    svg.appendChild(g); // в конец = поверх всего
+  const boltGroupsArray = Array.from(boltGroups).reverse();
+  boltGroupsArray.forEach(g => {
+    svg.insertBefore(g, svg.firstChild);
   });
 
   document.querySelectorAll('.lightning-bolt').forEach(el => {
@@ -226,7 +227,16 @@ function _findNearestShard(homeToShard, x, y, tolerance) {
 // Обновить все молнии за один кадр
 function tickBolts(dt) {
   for (let i = 0; i < BOLTS.length; i++) {
-    BOLTS[i].tick(dt);
+    const b = BOLTS[i];
+    // В normal режиме пропускаем болты которые точно скрыты —
+    // оба кристалла близко к home, нет смысла считать
+    if (BOLT_MODE === 'normal' && b.state === 'hidden') {
+      const off0 = b.shardId0 ? getShardOffset(b.shardId0) : { dx: 0, dy: 0 };
+      const off2 = b.shardId2 ? getShardOffset(b.shardId2) : { dx: 0, dy: 0 };
+      const maxDist = Math.max(Math.hypot(off0.dx, off0.dy), Math.hypot(off2.dx, off2.dy));
+      if (maxDist < BOLT_APPEAR_DIST_NORMAL * 0.8) continue; // точно скрыт
+    }
+    b.tick(dt);
   }
 }
 

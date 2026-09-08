@@ -36,6 +36,12 @@ html, body {
   width: 100%;
   height: 100%;
   display: block;
+  will-change: transform;
+}
+
+/* Кристаллики — GPU слой для плавных трансформаций */
+.shard {
+  will-change: transform;
 }
 
 /* ---------- ЭМОЦИИ ---------- */
@@ -59,10 +65,4 @@ html, body {
 @keyframes wiggle {
   0%, 100% { transform: rotate(0deg); }
   50%       { transform: rotate(4deg); }
-}
-
-/* Молнии — толще и ярче поверх кристаллов */
-.lightning-bolt {
-  stroke-width: 2.2;
-  filter: url(#bolt-glow);
 }
