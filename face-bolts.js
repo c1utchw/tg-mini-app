@@ -22,18 +22,19 @@
 // В assembled-режиме — высокий порог (молнии в покое не видны).
 // В reassembling — порог снижается программно через setBoltMode().
 const BOLT_APPEAR_DIST_NORMAL      = 4.5;
-const BOLT_APPEAR_DIST_REASSEMBLE  = 1.0;  // почти сразу видны при сборке
+const BOLT_APPEAR_DIST_REASSEMBLE  = 0.5;  // почти сразу видны при сборке
 
 // Расстояние максимальной яркости
 const BOLT_MAX_OPACITY_DIST_NORMAL     = 10.0;
-const BOLT_MAX_OPACITY_DIST_REASSEMBLE = 5.0;
+const BOLT_MAX_OPACITY_DIST_REASSEMBLE = 3.0;  // быстро набирают яркость
 
 // Максимальная opacity
 const BOLT_MAX_OPACITY_NORMAL     = 0.75;
 const BOLT_MAX_OPACITY_REASSEMBLE = 1.0;   // при сборке — полная яркость
 
-// Расстояние разрыва
-const BOLT_SNAP_DIST = 25.0;
+// Расстояние разрыва — в reassemble не рвём никогда (кристаллы летят издалека)
+const BOLT_SNAP_DIST_NORMAL     = 25.0;
+const BOLT_SNAP_DIST_REASSEMBLE = 9999;
 
 // Амплитуда дрожания средней точки
 const BOLT_FLICKER_AMP = 3.5;
@@ -89,8 +90,9 @@ class Bolt {
     const appearDist  = BOLT_MODE === 'reassemble' ? BOLT_APPEAR_DIST_REASSEMBLE  : BOLT_APPEAR_DIST_NORMAL;
     const maxOpDist   = BOLT_MODE === 'reassemble' ? BOLT_MAX_OPACITY_DIST_REASSEMBLE : BOLT_MAX_OPACITY_DIST_NORMAL;
     const maxOpacity  = BOLT_MODE === 'reassemble' ? BOLT_MAX_OPACITY_REASSEMBLE   : BOLT_MAX_OPACITY_NORMAL;
+    const snapDist    = BOLT_MODE === 'reassemble' ? BOLT_SNAP_DIST_REASSEMBLE      : BOLT_SNAP_DIST_NORMAL;
 
-    if (maxDist > BOLT_SNAP_DIST) {
+    if (maxDist > snapDist) {
       if (this.state !== 'snapped') this._doSnap();
       return;
     }

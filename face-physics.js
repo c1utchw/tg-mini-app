@@ -23,9 +23,9 @@ const PARAMS_SCATTERED = {
 };
 
 const PARAMS_REASSEMBLING = {
-  outer:     { k: 0.28,  d: 0.78, n: 0.04, max: 9999 },
-  core:      { k: 0.34,  d: 0.80, n: 0.02, max: 9999 },
-  highlight: { k: 0.44,  d: 0.82, n: 0.01, max: 9999 },
+  outer:     { k: 0.06,  d: 0.88, n: 0.02, max: 9999 },
+  core:      { k: 0.08,  d: 0.89, n: 0.01, max: 9999 },
+  highlight: { k: 0.12,  d: 0.90, n: 0.005, max: 9999 },
 };
 
 let PHYSICS_MODE = 'assembled';
@@ -272,18 +272,39 @@ function enterScattered() {
 
 function enterReassembling(onDone) {
   PHYSICS_MODE = 'reassembling';
-  const len = SHARDS.length;
-  for (let i = 0; i < len; i++) {
-    const shard = SHARDS[i];
-    const angle = Math.atan2(-shard.dy, -shard.dx);
-    const dist  = Math.hypot(shard.dx, shard.dy);
-    const mag   = Math.min(dist * 0.3, 18);
-    shard.applyImpulse(Math.cos(angle) * mag, Math.sin(angle) * mag);
-  }
+
+  // Сортируем кристаллики по расстоянию от home — ближние летят первыми
+  // Добавляем случайный разброс чтобы порядок был хаотичным
+  const sorted = SHARDS.slice().sort((a, b) => {
+    const da = Math.hypot(a.dx, a.dy) + (Math.random() - 0.5) * 80;
+    const db = Math.hypot(b.dx, b.dy) + (Math.random() - 0.5) * 80;
+    return da - db;
+  });
+
+  // Запускаем кристаллики волнами — каждые WAVE_INTERVAL мс следующая группа
+  const WAVE_INTERVAL = 120; // мс между группами
+  const WAVE_SIZE     = 3;   // кристаллов в одной волне
+
+  sorted.forEach((shard, i) => {
+    const delay = Math.floor(i / WAVE_SIZE) * WAVE_INTERVAL + Math.random() * 60;
+    setTimeout(() => {
+      if (PHYSICS_MODE !== 'reassembling' && PHYSICS_MODE !== 'assembled') return;
+      // Даём сильный импульс к home (dx=0, dy=0)
+      const dist = Math.hypot(shard.dx, shard.dy);
+      const angle = Math.atan2(-shard.dy, -shard.dx);
+      const mag = Math.min(dist * 0.5, 22);
+      shard.applyImpulse(Math.cos(angle) * mag, Math.sin(angle) * mag);
+    }, delay);
+  });
+
+  // Общее время сборки = (кол-во волн) * интервал + запас
+  const totalWaves = Math.ceil(sorted.length / WAVE_SIZE);
+  const totalTime  = totalWaves * WAVE_INTERVAL + 2000;
+
   setTimeout(() => {
     PHYSICS_MODE = 'assembled';
     if (onDone) onDone();
-  }, 1500);
+  }, totalTime);
 }
 
 function applyTiltToAll(ix, iy) {
