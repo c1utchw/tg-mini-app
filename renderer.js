@@ -397,6 +397,17 @@ function tick() {
   tickPhysics(dt);
   tickBolts(dt);
   updateBoredom();
+  // дебаг
+  dbg.textContent =
+    'gyro: '   + (gyroEnabled ? 'ON' : 'OFF') + '\n' +
+    'beta:  '  + gyroBeta.toFixed(1)  + '\n' +
+    'gamma: '  + gyroGamma.toFixed(1) + '\n' +
+    'nB: '     + (neutralBeta  !== null ? neutralBeta.toFixed(1)  : '...') + '\n' +
+    'nG: '     + (neutralGamma !== null ? neutralGamma.toFixed(1) : '...') + '\n' +
+    'fB: '     + filteredBeta.toFixed(2)  + '\n' +
+    'fG: '     + filteredGamma.toFixed(2) + '\n' +
+    'gx: '     + GRAVITY_X.toFixed(2) + '\n' +
+    'gy: '     + GRAVITY_Y.toFixed(2);
   requestAnimationFrame(tick);
 }
 
@@ -408,4 +419,10 @@ initPhysics();
 initBolts();
 createStartScreen();
 createShakeButton();
+
+// Дебаг-худ — покажет данные гироскопа
+const dbg = document.createElement('div');
+dbg.style.cssText = 'position:fixed;top:8px;left:8px;z-index:9998;background:rgba(0,0,0,.7);color:#0ff;font:11px/1.6 monospace;padding:6px 8px;border-radius:6px;pointer-events:none;white-space:pre';
+document.body.appendChild(dbg);
+
 requestAnimationFrame(tick);
