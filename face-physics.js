@@ -137,6 +137,36 @@ class Shard {
     this.dx += this.vx * dtNorm;
     this.dy += this.vy * dtNorm;
 
+    // --- Круговой барьер (только в scattered) ---
+    // SVG viewBox: "80 95 640 250" — центр видимой области ~(400, 220)
+    // Радиус барьера = половина минимальной стороны viewBox минус отступ
+    if (PHYSICS_MODE === 'scattered') {
+      const BARRIER_CX = 400;
+      const BARRIER_CY = 220;
+      const BARRIER_R  = 290; // вписывается в видимую часть с небольшим отступом
+      const BOUNCE     = 0.45; // упругость отскока
+
+      const wx = this.homeX + this.dx - BARRIER_CX;
+      const wy = this.homeY + this.dy - BARRIER_CY;
+      const wd = Math.hypot(wx, wy);
+
+      if (wd > BARRIER_R) {
+        // Нормаль к стенке (от центра наружу)
+        const nx = wx / wd;
+        const ny = wy / wd;
+        // Отталкиваем обратно внутрь
+        const over = wd - BARRIER_R;
+        this.dx -= nx * over;
+        this.dy -= ny * over;
+        // Отражаем скорость — убираем компоненту в сторону стенки
+        const dot = this.vx * nx + this.vy * ny;
+        if (dot > 0) {
+          this.vx -= (1 + BOUNCE) * dot * nx;
+          this.vy -= (1 + BOUNCE) * dot * ny;
+        }
+      }
+    }
+
     // --- Ограничение max (assembled) ---
     if (PHYSICS_MODE === 'assembled' && params.max < 9999) {
       const gravScale =
