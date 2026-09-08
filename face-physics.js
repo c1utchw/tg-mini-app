@@ -14,10 +14,12 @@ const PARAMS_ASSEMBLED = {
   highlight: { k: 0.28,  d: 0.83, n: 0.05, max: 1.2  },
 };
 
+// Scattered — свободный полёт, только шум + затухание + гравитация
+// Никакого притяжения к углам — кристаллы просто плавают
 const PARAMS_SCATTERED = {
-  outer:     { k: 0.010, d: 0.97, n: 0.275, max: 9999 },
-  core:      { k: 0.013, d: 0.97, n: 0.175, max: 9999 },
-  highlight: { k: 0.015, d: 0.97, n: 0.100, max: 9999 },
+  outer:     { k: 0.0,  d: 0.985, n: 0.12, max: 9999 },
+  core:      { k: 0.0,  d: 0.985, n: 0.08, max: 9999 },
+  highlight: { k: 0.0,  d: 0.990, n: 0.03, max: 9999 },
 };
 
 const PARAMS_REASSEMBLING = {
@@ -104,18 +106,24 @@ class Shard {
     this.vx += Math.cos(this._noiseAngle) * ns * dtNorm;
     this.vy += Math.sin(this._noiseAngle) * ns * dtNorm;
 
-    // --- Пружина ---
+    // --- Пружина / свободный полёт ---
     if (PHYSICS_MODE === 'scattered') {
-      this.vx += (this.scatterTargetDx - this.dx) * params.k * dtNorm;
-      this.vy += (this.scatterTargetDy - this.dy) * params.k * dtNorm;
+      // Свободный полёт — только гравитация как постоянное ускорение
+      // Разные типы имеют разную "массу" — outer тяжелее, highlight лёгкий
+      const gravScale =
+        this.type === 'outer'     ? 1.0 :
+        this.type === 'core'      ? 0.7 :
+        /* highlight */              0.3;
+      this.vx += GRAVITY_X * gravScale * 0.015 * dtNorm;
+      this.vy += GRAVITY_Y * gravScale * 0.015 * dtNorm;
     } else {
-      // Точка покоя смещена гравитацией
+      // Точка покоя смещена гравитацией (assembled / reassembling)
       const gravScale =
         this.type === 'outer'     ? 1.0 :
         this.type === 'core'      ? 0.6 :
         /* highlight */              0.2;
-      const eqX = GRAVITY_X * gravScale;
-      const eqY = GRAVITY_Y * gravScale;
+      const eqX = PHYSICS_MODE === 'reassembling' ? 0 : GRAVITY_X * gravScale;
+      const eqY = PHYSICS_MODE === 'reassembling' ? 0 : GRAVITY_Y * gravScale;
       this.vx += (eqX - this.dx) * params.k * dtNorm;
       this.vy += (eqY - this.dy) * params.k * dtNorm;
     }
@@ -213,14 +221,22 @@ function applyImpulseToGroup(groupId, ix, iy, scaleByType) {
 
 function enterScattered() {
   PHYSICS_MODE = 'scattered';
-  const force = 17.5;
+  // Взрыв от центра лица — каждый кристалл получает импульс наружу от home
+  // Направление = от центра SVG (400, 210) к home-позиции кристалла
+  const CX = 400, CY = 210;
+  const force = 20;
   const len = SHARDS.length;
   for (let i = 0; i < len; i++) {
     const shard = SHARDS[i];
-    shard.assignScatterTarget();
-    const angle = Math.atan2(shard.scatterTargetDy - shard.dy, shard.scatterTargetDx - shard.dx);
-    const mag   = force * (0.6 + Math.random() * 0.4);
-    shard.applyImpulse(Math.cos(angle) * mag, Math.sin(angle) * mag);
+    const dx = shard.homeX - CX;
+    const dy = shard.homeY - CY;
+    const dist = Math.hypot(dx, dy) || 1;
+    const mag = force * (0.5 + Math.random() * 0.8);
+    // Добавляем случайный разброс
+    shard.applyImpulse(
+      (dx / dist) * mag + (Math.random() - 0.5) * 8,
+      (dy / dist) * mag + (Math.random() - 0.5) * 8
+    );
   }
 }
 
