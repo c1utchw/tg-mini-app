@@ -45,6 +45,21 @@ const PARAMS_REASSEMBLING = {
 // Текущий режим — читается в Shard.tick()
 let PHYSICS_MODE = 'assembled';
 
+// ============================================================
+// ВЕКТОР ГРАВИТАЦИИ
+// Смещает точку равновесия пружины — кристаллики "висят"
+// в сторону наклона как под силой тяжести.
+// Устанавливается из renderer.js через setGravity(gx, gy).
+// gx, gy — в SVG-единицах, типичные значения ±0..8
+// ============================================================
+let GRAVITY_X = 0;
+let GRAVITY_Y = 0;
+
+function setGravity(gx, gy) {
+  GRAVITY_X = gx;
+  GRAVITY_Y = gy;
+}
+
 // ---- Класс одного кристаллика ----
 
 class Shard {
@@ -122,15 +137,22 @@ class Shard {
     this.vy += Math.sin(this._noiseAngle) * ns * dtNorm;
 
     // --- Пружина ---
-    // В assembled/reassembling — тянет к (0,0) от home
+    // В assembled/reassembling — тянет к (0,0) от home + гравитационное смещение
     // В scattered — тянет к scatterTarget
     if (PHYSICS_MODE === 'scattered') {
       this.vx += (this.scatterTargetDx - this.dx) * params.k * dtNorm;
       this.vy += (this.scatterTargetDy - this.dy) * params.k * dtNorm;
     } else {
-      // assembled и reassembling — тянут к home (dx=0, dy=0)
-      this.vx += (-this.dx) * params.k * dtNorm;
-      this.vy += (-this.dy) * params.k * dtNorm;
+      // Точка равновесия = (0,0) + гравитационное смещение
+      // Чем тяжелее тип (outer > core > highlight), тем сильнее смещается
+      const gravScale =
+        this.type === 'outer'     ? 1.0 :
+        this.type === 'core'      ? 0.6 :
+        /* highlight */              0.2;
+      const eqX = GRAVITY_X * gravScale;
+      const eqY = GRAVITY_Y * gravScale;
+      this.vx += (eqX - this.dx) * params.k * dtNorm;
+      this.vy += (eqY - this.dy) * params.k * dtNorm;
     }
 
     // --- Затухание ---
@@ -143,11 +165,15 @@ class Shard {
 
     // --- Ограничение max (только в assembled) ---
     if (PHYSICS_MODE === 'assembled' && params.max < 9999) {
-      const dist = Math.hypot(this.dx, this.dy);
+      // Меряем расстояние от точки равновесия (с учётом гравитации)
+      const gravScale = this.type === 'outer' ? 1.0 : this.type === 'core' ? 0.6 : 0.2;
+      const eqX = GRAVITY_X * gravScale;
+      const eqY = GRAVITY_Y * gravScale;
+      const dist = Math.hypot(this.dx - eqX, this.dy - eqY);
       if (dist > params.max) {
         const sc = params.max / dist;
-        this.dx *= sc;
-        this.dy *= sc;
+        this.dx = eqX + (this.dx - eqX) * sc;
+        this.dy = eqY + (this.dy - eqY) * sc;
       }
     }
 

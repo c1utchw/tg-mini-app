@@ -1,6 +1,10 @@
 // ============================================================
 // renderer.js — Telegram Mini App
-// Свайп = наклон, кнопка ⚡ = тряска, тап = радость
+//
+// Гравитация: наклон телефона смещает точку покоя кристалликов.
+// Телефон лежит горизонтально = кристаллики по центру.
+// Телефон наклонён вправо = кристаллики смещаются вправо.
+// Свайп = разовый импульс. Кнопка ⚡ = тряска/сборка.
 // ============================================================
 
 const pet   = document.getElementById('pet');
@@ -64,7 +68,7 @@ function noteInteraction() {
 // ТРЯСКА
 // ============================================================
 
-let shakeActive  = false;
+let shakeActive   = false;
 let lastShakeTime = 0;
 const SHAKE_COOLDOWN = 1200;
 
@@ -85,23 +89,25 @@ function triggerShake() {
 }
 
 // ============================================================
-// СЕНСОРЫ (гироскоп + акселерометр)
-// Работает на Android, для iOS — fallback на свайп
+// СЕНСОРЫ УСТРОЙСТВА
 // ============================================================
 
 let gyroEnabled  = false;
-let gyroBeta     = 0;
-let gyroGamma    = 0;
-let filteredBeta = 0, filteredGamma = 0;
-let neutralBeta  = null, neutralGamma = null;
+let gyroBeta     = 0;   // наклон вперёд/назад
+let gyroGamma    = 0;   // наклон влево/вправо
+
+// Низкочастотный фильтр для плавности
+let filteredBeta  = 0;
+let filteredGamma = 0;
+const GYRO_FILTER = 0.08; // медленно сглаживает → плавное "течение"
+
+// Калибровка нейтрального положения (первые 30 кадров)
+let neutralBeta  = null;
+let neutralGamma = null;
 let calibFrames  = 0, calibSumB = 0, calibSumG = 0;
+const CALIB_FRAMES = 30;
 
-const GYRO_FILTER    = 0.15;
-const GYRO_DEADZONE  = 3.0;
-const GYRO_MAX_ANGLE = 40.0;
-const GYRO_STRENGTH  = 0.8;
-const CALIB_FRAMES   = 30;
-
+// Для тряски через акселерометр
 let prevAccX = 0, prevAccY = 0, prevAccZ = 0;
 const SHAKE_THRESHOLD = 20;
 
@@ -121,8 +127,8 @@ function startTelegramSensors() {
     if (TG.DeviceOrientation && typeof TG.DeviceOrientation.start === 'function') {
       TG.DeviceOrientation.start({ refresh_rate: 50, need_absolute: false });
       TG.DeviceOrientation.onChanged(() => {
-        gyroBeta  = TG.DeviceOrientation.beta  || 0;
-        gyroGamma = TG.DeviceOrientation.gamma || 0;
+        gyroBeta    = TG.DeviceOrientation.beta  || 0;
+        gyroGamma   = TG.DeviceOrientation.gamma || 0;
         gyroEnabled = true;
       });
       ok = true;
@@ -143,19 +149,16 @@ function startBrowserSensors() {
   const doOrientation = () => {
     window.addEventListener('deviceorientation', e => {
       if (e.beta == null) return;
-      gyroBeta  = e.beta;
-      gyroGamma = e.gamma;
+      gyroBeta    = e.beta;
+      gyroGamma   = e.gamma;
       gyroEnabled = true;
     }, { passive: true });
   };
   if (typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function') {
-    DeviceOrientationEvent.requestPermission().then(s => {
-      if (s === 'granted') doOrientation();
-    }).catch(doOrientation);
-  } else {
-    doOrientation();
-  }
+    DeviceOrientationEvent.requestPermission()
+      .then(s => { if (s === 'granted') doOrientation(); }).catch(doOrientation);
+  } else { doOrientation(); }
 
   const doMotion = () => {
     window.addEventListener('devicemotion', e => {
@@ -166,12 +169,9 @@ function startBrowserSensors() {
   };
   if (typeof DeviceMotionEvent !== 'undefined' &&
       typeof DeviceMotionEvent.requestPermission === 'function') {
-    DeviceMotionEvent.requestPermission().then(s => {
-      if (s === 'granted') doMotion();
-    }).catch(doMotion);
-  } else {
-    doMotion();
-  }
+    DeviceMotionEvent.requestPermission()
+      .then(s => { if (s === 'granted') doMotion(); }).catch(doMotion);
+  } else { doMotion(); }
 }
 
 function calibrateGyro() {
@@ -184,23 +184,39 @@ function calibrateGyro() {
   }
 }
 
+// Максимальное смещение гравитации (SVG-единицы)
+// outer max = 7.0 — берём чуть меньше чтобы оставался зазор
+const GRAVITY_MAX    = 5.5;
+const GYRO_MAX_ANGLE = 45.0; // градусов для полного отклонения
+
 function applyGyroTilt() {
   if (!gyroEnabled) return;
   calibrateGyro();
   if (neutralBeta === null) return;
-  filteredGamma += ((gyroGamma - neutralGamma) - filteredGamma) * GYRO_FILTER;
-  filteredBeta  += ((gyroBeta  - neutralBeta)  - filteredBeta)  * GYRO_FILTER;
-  const dg = Math.abs(filteredGamma) < GYRO_DEADZONE ? 0 : filteredGamma;
-  const db = Math.abs(filteredBeta)  < GYRO_DEADZONE ? 0 : filteredBeta;
-  if (dg === 0 && db === 0) return;
-  const ix = Math.max(-1, Math.min(1, dg / GYRO_MAX_ANGLE));
-  const iy = Math.max(-1, Math.min(1, db / GYRO_MAX_ANGLE));
-  applyTilt(ix * GYRO_STRENGTH, iy * GYRO_STRENGTH);
+
+  // Отклонение от нейтрали
+  const rawG = gyroGamma - neutralGamma;
+  const rawB = gyroBeta  - neutralBeta;
+
+  // Плавный фильтр
+  filteredGamma += (rawG - filteredGamma) * GYRO_FILTER;
+  filteredBeta  += (rawB - filteredBeta)  * GYRO_FILTER;
+
+  // Нормируем в [-1, 1] и переводим в SVG-единицы гравитации
+  const gx = Math.max(-1, Math.min(1, filteredGamma / GYRO_MAX_ANGLE)) * GRAVITY_MAX;
+  const gy = Math.max(-1, Math.min(1, filteredBeta  / GYRO_MAX_ANGLE)) * GRAVITY_MAX;
+
+  // Устанавливаем гравитацию (смещает точку покоя пружины)
+  setGravity(gx, gy);
+
+  // В разлёте — дополнительно толкаем осколки
+  if (getFaceState() === 'scattered') {
+    applyTiltToAll(gx * 0.04, gy * 0.04);
+  }
 }
 
 // ============================================================
-// ЭКРАН "TAP TO START" — только для запроса разрешений
-// свайп работает и до и после него
+// ЭКРАН "TAP TO START"
 // ============================================================
 
 function createStartScreen() {
@@ -211,66 +227,52 @@ function createStartScreen() {
     'display:flex','align-items:center','justify-content:center',
     'cursor:pointer','touch-action:manipulation'
   ].join(';');
-
   const box = document.createElement('div');
   box.style.cssText = 'text-align:center;color:#7FEFEA;font-family:system-ui,sans-serif';
   box.innerHTML =
     '<div style="font-size:54px;margin-bottom:14px">👾</div>' +
     '<div style="font-size:22px;font-weight:600;letter-spacing:.05em">Tap to wake up</div>' +
     '<div style="font-size:13px;opacity:.5;margin-top:8px;letter-spacing:.08em">' +
-    'swipe to move · ⚡ to shatter</div>';
+    'tilt to move · ⚡ to shatter</div>';
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
   function activate() {
     overlay.remove();
-    // Пробуем Telegram нативный API (iOS с новым Telegram)
     const hasTg = startTelegramSensors();
-    // Если нет — пробуем браузерный (Android / десктоп)
     if (!hasTg) startBrowserSensors();
     vibrate('light');
   }
-
   overlay.addEventListener('touchstart', activate, { once: true, passive: true });
   overlay.addEventListener('click',      activate, { once: true });
 }
 
 // ============================================================
-// КНОПКА ТРЯСКИ ⚡ (правый нижний угол)
+// КНОПКА ТРЯСКИ ⚡
 // ============================================================
 
 function createShakeButton() {
   const btn = document.createElement('button');
   btn.textContent = '⚡';
   btn.style.cssText = [
-    'position:fixed',
-    'right:16px',
+    'position:fixed','right:16px',
     'bottom:calc(20px + env(safe-area-inset-bottom))',
-    'z-index:8000',
-    'width:54px','height:54px',
-    'border-radius:50%',
+    'z-index:8000','width:54px','height:54px','border-radius:50%',
     'background:rgba(184,92,255,0.18)',
     'border:1.5px solid rgba(184,92,255,0.55)',
-    'color:#B85CFF','font-size:24px',
-    'cursor:pointer',
+    'color:#B85CFF','font-size:24px','cursor:pointer',
     '-webkit-tap-highlight-color:transparent',
-    'touch-action:manipulation',
-    'display:flex','align-items:center','justify-content:center',
-    'padding:0'
+    'touch-action:manipulation','padding:0',
+    'display:flex','align-items:center','justify-content:center'
   ].join(';');
-  btn.addEventListener('touchstart', e => {
-    e.preventDefault();
-    triggerShake();
-  }, { passive: false });
-  btn.addEventListener('mousedown', e => {
-    e.preventDefault();
-    triggerShake();
-  });
+  btn.addEventListener('touchstart', e => { e.preventDefault(); triggerShake(); },
+    { passive: false });
+  btn.addEventListener('mousedown', e => { e.preventDefault(); triggerShake(); });
   document.body.appendChild(btn);
 }
 
 // ============================================================
-// СВАЙП / ТАП — основное управление
+// СВАЙП / ТАП — разовые импульсы
 // ============================================================
 
 const TILT_IMPULSE_ASSEMBLED = 0.225;
@@ -291,24 +293,19 @@ stage.addEventListener('touchmove', e => {
   const dy = t.clientY - touchLastY;
   touchLastX = t.clientX;
   touchLastY = t.clientY;
-
   const dist = Math.hypot(dx, dy);
   if (dist < 1) return;
-
   noteInteraction();
-  const norm = dist;
-  // Сила = скорость пальца, зажатая в [0.2, 2.0]
   const power = Math.max(0.2, Math.min(2.0, dist / 6));
-  applyTilt((dx / norm) * power, (dy / norm) * power);
+  applyImpulse(dx / dist * power, dy / dist * power);
 }, { passive: true });
 
 stage.addEventListener('touchend', e => {
-  const totalDist = Math.hypot(
+  const d = Math.hypot(
     e.changedTouches[0].clientX - touchStartX,
     e.changedTouches[0].clientY - touchStartY
   );
-  if (totalDist < 12) {
-    // Тап — радость
+  if (d < 12) {
     noteInteraction();
     setEmotion('happy');
     vibrate('light');
@@ -318,7 +315,6 @@ stage.addEventListener('touchend', e => {
   }
 }, { passive: true });
 
-// Десктоп — клик и клавиши
 pet.addEventListener('mousedown', () => {
   noteInteraction(); setEmotion('happy');
   applyImpulseToGroup('eye-left',  0, -0.75, { outer: 1.0, core: 0.5, highlight: 0.1 });
@@ -327,18 +323,22 @@ pet.addEventListener('mousedown', () => {
 });
 
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space' && !shakeActive) triggerShake();
-  if (e.code === 'ArrowLeft')  applyTilt(-1,  0);
-  if (e.code === 'ArrowRight') applyTilt( 1,  0);
-  if (e.code === 'ArrowUp')    applyTilt( 0, -1);
-  if (e.code === 'ArrowDown')  applyTilt( 0,  1);
+  if (e.code === 'Space') triggerShake();
+  // Стрелки — смещают гравитацию для теста на десктопе
+  const step = 1.5;
+  if (e.code === 'ArrowLeft')  setGravity(GRAVITY_X - step, GRAVITY_Y);
+  if (e.code === 'ArrowRight') setGravity(GRAVITY_X + step, GRAVITY_Y);
+  if (e.code === 'ArrowUp')    setGravity(GRAVITY_X, GRAVITY_Y - step);
+  if (e.code === 'ArrowDown')  setGravity(GRAVITY_X, GRAVITY_Y + step);
+  // R — сброс гравитации
+  if (e.code === 'KeyR')       setGravity(0, 0);
 });
 
 // ============================================================
-// НАКЛОН
+// РАЗОВЫЙ ИМПУЛЬС (свайп)
 // ============================================================
 
-function applyTilt(ix, iy) {
+function applyImpulse(ix, iy) {
   if (getFaceState() === 'scattered') {
     applyTiltToAll(ix * TILT_IMPULSE_SCATTERED, iy * TILT_IMPULSE_SCATTERED);
   } else {
