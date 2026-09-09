@@ -1,0 +1,5 @@
+[
+  { "id": "crystal",  "name": "Кристалл", "path": "assets/face.svg" },
+  { "id": "cloud",    "name": "Облако",   "path": "assets/face-cloud.svg" },
+  { "id": "cyberpunk","name": "Киберпанк","path": "assets/face-cyberpunk.svg" }
+]
