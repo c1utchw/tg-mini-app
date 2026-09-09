@@ -43,8 +43,8 @@ let BOLT_MODE = 'normal';
 
 function setBoltMode(mode) {
   BOLT_MODE = mode;
-  // Усиливаем glow фильтр при сборке
-  const blur = document.querySelector('#bolt-glow feGaussianBlur');
+  // Усиливаем glow фильтр при сборке — ищем любой bolt-glow фильтр в DOM
+  const blur = document.querySelector('[id$="-glow"] feGaussianBlur, #bolt-glow feGaussianBlur, #bolt-glow-blue feGaussianBlur, #circuit-glow feGaussianBlur');
   if (blur) {
     blur.setAttribute('stdDeviation', mode === 'reassemble' ? '3.5' : '1.6');
   }
