@@ -41,7 +41,14 @@ const BOLT_FLICKER_AMP = 2.5;
 // Текущий режим молний: 'normal' | 'reassemble'
 let BOLT_MODE = 'normal';
 
-function setBoltMode(mode) { BOLT_MODE = mode; }
+function setBoltMode(mode) {
+  BOLT_MODE = mode;
+  // Усиливаем glow фильтр при сборке
+  const blur = document.querySelector('#bolt-glow feGaussianBlur');
+  if (blur) {
+    blur.setAttribute('stdDeviation', mode === 'reassemble' ? '3.5' : '1.6');
+  }
+}
 
 // ---- Класс одной молнии ----
 
@@ -90,6 +97,16 @@ class Bolt {
     const maxOpDist   = BOLT_MODE === 'reassemble' ? BOLT_MAX_OPACITY_DIST_REASSEMBLE : BOLT_MAX_OPACITY_DIST_NORMAL;
     const maxOpacity  = BOLT_MODE === 'reassemble' ? BOLT_MAX_OPACITY_REASSEMBLE   : BOLT_MAX_OPACITY_NORMAL;
     const snapDist    = BOLT_MODE === 'reassemble' ? BOLT_SNAP_DIST_REASSEMBLE      : BOLT_SNAP_DIST_NORMAL;
+
+    // В reassemble — показываем молнию только если кристалл активно летит
+    // (смещение > 12px). Это убирает каракули из сотен молний одновременно.
+    if (BOLT_MODE === 'reassemble' && maxDist < 12) {
+      if (this.state !== 'hidden') {
+        this.state = 'hidden';
+        this.el.setAttribute('opacity', '0');
+      }
+      return;
+    }
 
     if (maxDist > snapDist) {
       if (this.state !== 'snapped') this._doSnap();

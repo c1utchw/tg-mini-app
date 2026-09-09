@@ -271,22 +271,21 @@ function applyImpulseToGroup(groupId, ix, iy, scaleByType) {
 
 function enterScattered() {
   PHYSICS_MODE = 'scattered';
-  // Взрыв от центра лица — каждый кристалл получает импульс наружу от home
-  // Направление = от центра SVG (400, 210) к home-позиции кристалла
+  // Взрыв от центра — сильный и широкий чтобы кристаллы разлетались по всему кругу
   const CX = 400, CY = 210;
-  const force = 20;
+  const force = 32; // сильнее
   const len = SHARDS.length;
   for (let i = 0; i < len; i++) {
     const shard = SHARDS[i];
     const dx = shard.homeX - CX;
     const dy = shard.homeY - CY;
     const dist = Math.hypot(dx, dy) || 1;
-    const mag = force * (0.5 + Math.random() * 0.8);
-    // Добавляем случайный разброс
-    shard.applyImpulse(
-      (dx / dist) * mag + (Math.random() - 0.5) * 8,
-      (dy / dist) * mag + (Math.random() - 0.5) * 8
-    );
+    const mag = force * (0.7 + Math.random() * 0.9);
+    // Случайное отклонение от радиального направления ±40°
+    const spread = (Math.random() - 0.5) * 0.7;
+    const angle  = Math.atan2(dy, dx) + spread;
+    shard.vx = Math.cos(angle) * mag;
+    shard.vy = Math.sin(angle) * mag;
   }
 }
 

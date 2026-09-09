@@ -66,3 +66,9 @@ html, body {
   0%, 100% { transform: rotate(0deg); }
   50%       { transform: rotate(4deg); }
 }
+
+/* Молнии — толще stroke для видимости */
+.lightning-bolt {
+  stroke-width: 2.4 !important;
+  will-change: opacity;
+}
