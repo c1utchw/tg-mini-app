@@ -394,14 +394,14 @@ function tick() {
 }
 
 // ============================================================
-// СТАРТ — скин загружается через SkinManager, он вызывает initPhysics/initBolts
+// СТАРТ
 // ============================================================
 
-createStartScreen();
 createShakeButton();
 requestAnimationFrame(tick);
 
-// Загружаем дефолтный скин (crystal). SkinManager.init вызывает initPhysics + initBolts.
-SkinManager.init('crystal').catch(err => {
-  console.error('[renderer] Не удалось загрузить скин:', err);
-});
+// Загружаем дефолтный скин — он вызовет initPhysics + initBolts,
+// после чего показываем стартовый экран
+SkinManager.init('crystal')
+  .then(() => { createStartScreen(); })
+  .catch(err => { console.error('[renderer] Скин не загружен:', err); createStartScreen(); });

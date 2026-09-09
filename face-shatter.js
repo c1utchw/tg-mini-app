@@ -11,7 +11,8 @@
 // (PHYSICS_MODE может быть 'reassembling' как переходное — здесь не храним)
 let FACE_STATE = 'assembled';
 
-function getFaceState() { return FACE_STATE; }
+function getFaceState()   { return FACE_STATE; }
+function resetFaceState() { FACE_STATE = 'assembled'; }
 
 // Вызывается из renderer.js при каждой тряске (Пробел)
 function triggerShatterEffect() {

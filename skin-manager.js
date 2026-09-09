@@ -73,29 +73,14 @@ const SkinManager = (() => {
 
   // ---- Сброс старого состояния ----
   function _teardown() {
-    // Сбрасываем глобальные массивы физики и молний
-    // (они объявлены в face-physics.js и face-bolts.js как const SHARDS=[], BOLTS=[])
-    if (typeof SHARDS !== 'undefined') SHARDS.length = 0;
-    if (typeof SHARD_MAP !== 'undefined') {
-      for (const k in SHARD_MAP) delete SHARD_MAP[k];
-    }
-    if (typeof BOLTS !== 'undefined') BOLTS.length = 0;
-    if (typeof BOLT_MAP !== 'undefined') {
-      for (const k in BOLT_MAP) delete BOLT_MAP[k];
-    }
-    // Сбрасываем гравитацию и режим физики
-    if (typeof setGravity === 'function') setGravity(0, 0);
-    if (typeof PHYSICS_MODE !== 'undefined') {
-      // PHYSICS_MODE — let в face-physics.js, обращаемся через eval-free способ:
-      // enterReassembling уже не нужна — просто выставим через глобальную переменную
-      // Нет прямого сеттера — пересоздаём через initPhysics
-    }
-
-    // Сбрасываем FACE_STATE в face-shatter.js
-    if (typeof FACE_STATE !== 'undefined') {
-      // Нет сеттера — нет доступа напрямую, обходим через triggerShatterEffect если нужно
-      // При reinit состояние сбросится естественно через initPhysics
-    }
+    if (typeof SHARDS !== 'undefined')    SHARDS.length = 0;
+    if (typeof SHARD_MAP !== 'undefined') { for (const k in SHARD_MAP) delete SHARD_MAP[k]; }
+    if (typeof BOLTS !== 'undefined')     BOLTS.length = 0;
+    if (typeof BOLT_MAP !== 'undefined')  { for (const k in BOLT_MAP) delete BOLT_MAP[k]; }
+    if (typeof setGravity        === 'function') setGravity(0, 0);
+    if (typeof resetPhysicsMode  === 'function') resetPhysicsMode();
+    if (typeof resetFaceState    === 'function') resetFaceState();
+    if (typeof setBoltMode       === 'function') setBoltMode('normal');
   }
 
   // ---- Переинициализация логики на новых DOM-элементах ----

@@ -40,6 +40,7 @@ function setGravity(gx, gy)    { GRAVITY_X = gx; GRAVITY_Y = gy; }
 function getGravityX()         { return GRAVITY_X; }
 function getGravityY()         { return GRAVITY_Y; }
 function getPhysicsMode()      { return PHYSICS_MODE; }
+function resetPhysicsMode()    { PHYSICS_MODE = 'assembled'; }
 
 // ---- Класс одного кристаллика ----
 
