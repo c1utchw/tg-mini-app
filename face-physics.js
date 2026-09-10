@@ -36,11 +36,16 @@ let PHYSICS_MODE = 'assembled';
 let GRAVITY_X = 0;
 let GRAVITY_Y = 0;
 
+// Множитель веса скина — влияет на скорость реакции на гравитацию и затухание
+// crystal=1.0, cloud=0.35 (лёгкое), cyberpunk=2.2 (тяжёлое)
+let SKIN_WEIGHT = 1.0;
+
 function setGravity(gx, gy)    { GRAVITY_X = gx; GRAVITY_Y = gy; }
 function getGravityX()         { return GRAVITY_X; }
 function getGravityY()         { return GRAVITY_Y; }
 function getPhysicsMode()      { return PHYSICS_MODE; }
 function resetPhysicsMode()    { PHYSICS_MODE = 'assembled'; }
+function setSkinWeight(w)      { SKIN_WEIGHT = Math.max(0.1, w); }
 
 // ---- Класс одного кристаллика ----
 
@@ -98,6 +103,16 @@ class Shard {
     else if (PHYSICS_MODE === 'reassembling') params = PARAMS_REASSEMBLING[this.type];
     else                                       params = PARAMS_ASSEMBLED[this.type];
 
+    // Жёсткость пружины и затухание зависят от веса скина:
+    // тяжёлый → пружина слабее (медленнее к цели), затухание меньше (инерция)
+    // лёгкий  → пружина жёстче (быстрее к цели), затухание больше (воздушный)
+    const kScale = PHYSICS_MODE === 'assembled'
+      ? (1.0 / Math.sqrt(SKIN_WEIGHT))   // тяжёлый медленнее возвращается в покое
+      : 1.0;
+    const dScale = PHYSICS_MODE === 'scattered'
+      ? 1.0
+      : Math.pow(0.97, (SKIN_WEIGHT - 1.0) * 2); // тяжёлый чуть меньше затухает
+
     // --- Шум ---
     this._noiseTimer += dt;
     if (this._noiseTimer >= this._noiseChange) {
@@ -111,28 +126,28 @@ class Shard {
 
     // --- Пружина / свободный полёт ---
     if (PHYSICS_MODE === 'scattered') {
-      // Свободный полёт — только гравитация как постоянное ускорение
-      // Разные типы имеют разную "массу" — outer тяжелее, highlight лёгкий
+      // Свободный полёт — гравитация как ускорение, масштабируется весом
       const gravScale =
         this.type === 'outer'     ? 1.0 :
         this.type === 'core'      ? 0.7 :
         /* highlight */              0.3;
-      this.vx += GRAVITY_X * gravScale * 0.015 * dtNorm;
-      this.vy += GRAVITY_Y * gravScale * 0.015 * dtNorm;
+      // SKIN_WEIGHT: тяжёлый падает быстрее (больше ускорение)
+      this.vx += GRAVITY_X * gravScale * 0.015 * SKIN_WEIGHT * dtNorm;
+      this.vy += GRAVITY_Y * gravScale * 0.015 * SKIN_WEIGHT * dtNorm;
     } else {
-      // Точка покоя смещена гравитацией (assembled / reassembling)
       const gravScale =
         this.type === 'outer'     ? 1.0 :
         this.type === 'core'      ? 0.6 :
         /* highlight */              0.2;
       const eqX = PHYSICS_MODE === 'reassembling' ? 0 : GRAVITY_X * gravScale;
       const eqY = PHYSICS_MODE === 'reassembling' ? 0 : GRAVITY_Y * gravScale;
-      this.vx += (eqX - this.dx) * params.k * dtNorm;
-      this.vy += (eqY - this.dy) * params.k * dtNorm;
+      // kScale: тяжёлый медленнее к точке покоя (более инертный)
+      this.vx += (eqX - this.dx) * params.k * kScale * dtNorm;
+      this.vy += (eqY - this.dy) * params.k * kScale * dtNorm;
     }
 
     // --- Затухание ---
-    const damp = Math.pow(params.d, dtNorm);
+    const damp = Math.pow(params.d * dScale, dtNorm);
     this.vx *= damp;
     this.vy *= damp;
 

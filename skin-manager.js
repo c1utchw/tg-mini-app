@@ -65,6 +65,11 @@ const SkinManager = (() => {
 
     _currentId = skinId;
 
+    // Устанавливаем физический вес скина
+    if (typeof setSkinWeight === 'function') {
+      setSkinWeight(skin.weight !== undefined ? skin.weight : 1.0);
+    }
+
     // 5. Переинициализируем всю логику на новых элементах
     _reinit();
 

@@ -1,5 +1,5 @@
 [
-  { "id": "crystal",  "name": "Кристалл", "path": "assets/face.svg" },
-  { "id": "cloud",    "name": "Облако",   "path": "assets/face-cloud.svg" },
-  { "id": "cyberpunk","name": "Киберпанк","path": "assets/face-cyberpunk.svg" }
+  { "id": "crystal",   "name": "Кристалл", "path": "assets/face.svg",           "weight": 1.0 },
+  { "id": "cloud",     "name": "Облако",   "path": "assets/face-cloud.svg",     "weight": 0.35 },
+  { "id": "cyberpunk", "name": "Киберпанк","path": "assets/face-cyberpunk.svg", "weight": 4.0 }
 ]
