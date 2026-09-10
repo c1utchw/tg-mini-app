@@ -398,7 +398,7 @@ pet.addEventListener('mousedown', () => {
 const _heldKeys  = new Set();
 let   _tiltAccX  = 0;  // текущее накопленное смещение гравитации от клавиш
 let   _tiltAccY  = 0;
-const TILT_ACCEL  = 0.16;  // разгон за кадр (x2)
+const TILT_ACCEL  = 0.32;  // разгон за кадр (x4 от начального)
 const TILT_MAX    = 5.5;   // максимальное смещение (= GRAVITY_MAX)
 const TILT_DECAY  = 0.88;  // затухание когда клавиша отпущена
 
