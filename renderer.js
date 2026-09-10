@@ -258,6 +258,92 @@ function createShakeButton() {
 }
 
 // ============================================================
+// D-PAD кнопки (для десктопа и мобила без гироскопа)
+// ============================================================
+
+function createDpad() {
+  // Стили
+  const style = document.createElement('style');
+  style.textContent = `
+    #_dpad {
+      position: fixed;
+      right: 80px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      z-index: 8000;
+      display: grid;
+      grid-template-columns: 44px 44px 44px;
+      grid-template-rows: 44px 44px 44px;
+      gap: 3px;
+      pointer-events: auto;
+    }
+    .dpad-btn {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.07);
+      border: 1.5px solid rgba(127,239,234,0.25);
+      color: rgba(127,239,234,0.8);
+      font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      user-select: none;
+      transition: background 0.1s;
+    }
+    .dpad-btn:active, .dpad-btn.pressed {
+      background: rgba(127,239,234,0.18);
+      border-color: rgba(127,239,234,0.6);
+    }
+    .dpad-empty { background: none !important; border: none !important; pointer-events: none; }
+  `;
+  document.head.appendChild(style);
+
+  const pad = document.createElement('div');
+  pad.id = '_dpad';
+
+  // Сетка 3x3: UP в середине верхнего ряда, LEFT/RIGHT в среднем, DOWN в нижнем
+  const layout = [
+    null,   'up',    null,
+    'left', null,   'right',
+    null,   'down',  null,
+  ];
+  const icons = { up: '▲', left: '◀', right: '▶', down: '▼' };
+
+  layout.forEach(dir => {
+    const cell = document.createElement('button');
+    if (!dir) {
+      cell.className = 'dpad-btn dpad-empty';
+      cell.disabled = true;
+    } else {
+      cell.className = 'dpad-btn';
+      cell.textContent = icons[dir];
+      cell.dataset.dir = dir;
+
+      // Touch и mouse — держим нажатым
+      const press = (e) => {
+        e.preventDefault();
+        cell.classList.add('pressed');
+        _heldKeys.add('Arrow' + dir.charAt(0).toUpperCase() + dir.slice(1));
+      };
+      const release = (e) => {
+        e.preventDefault();
+        cell.classList.remove('pressed');
+        _heldKeys.delete('Arrow' + dir.charAt(0).toUpperCase() + dir.slice(1));
+      };
+      cell.addEventListener('touchstart',  press,   { passive: false });
+      cell.addEventListener('touchend',    release, { passive: false });
+      cell.addEventListener('touchcancel', release, { passive: false });
+      cell.addEventListener('mousedown',   press);
+      cell.addEventListener('mouseup',     release);
+      cell.addEventListener('mouseleave',  release);
+    }
+    pad.appendChild(cell);
+  });
+
+  document.body.appendChild(pad);
+}
+
+// ============================================================
 // СВАЙП / ТАП
 // ============================================================
 
@@ -308,15 +394,42 @@ pet.addEventListener('mousedown', () => {
   setTimeout(() => { if (emotions.current === 'happy') setEmotion('idle'); }, 1200);
 });
 
+// Стрелки на десктопе — плавно нарастающий наклон при удержании
+const _heldKeys  = new Set();
+let   _tiltAccX  = 0;  // текущее накопленное смещение гравитации от клавиш
+let   _tiltAccY  = 0;
+const TILT_ACCEL  = 0.08;  // разгон за кадр
+const TILT_MAX    = 5.5;   // максимальное смещение (= GRAVITY_MAX)
+const TILT_DECAY  = 0.88;  // затухание когда клавиша отпущена
+
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space') { triggerShake(); return; }
-  const step = 1.5;
-  if (e.code === 'ArrowLeft')  setGravity(getGravityX() - step, getGravityY());
-  if (e.code === 'ArrowRight') setGravity(getGravityX() + step, getGravityY());
-  if (e.code === 'ArrowUp')    setGravity(getGravityX(), getGravityY() - step);
-  if (e.code === 'ArrowDown')  setGravity(getGravityX(), getGravityY() + step);
-  if (e.code === 'KeyR')       setGravity(0, 0);
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) {
+    e.preventDefault();
+    _heldKeys.add(e.code);
+  }
+  if (e.code === 'Space') { triggerShake(); }
+  if (e.code === 'KeyR')  { _tiltAccX = 0; _tiltAccY = 0; setGravity(0, 0); }
 });
+window.addEventListener('keyup', e => _heldKeys.delete(e.code));
+
+function applyKeyboardTilt() {
+  if (_heldKeys.size > 0) {
+    if (_heldKeys.has('ArrowLeft'))  _tiltAccX = Math.max(-TILT_MAX, _tiltAccX - TILT_ACCEL);
+    if (_heldKeys.has('ArrowRight')) _tiltAccX = Math.min( TILT_MAX, _tiltAccX + TILT_ACCEL);
+    if (_heldKeys.has('ArrowUp'))    _tiltAccY = Math.max(-TILT_MAX, _tiltAccY - TILT_ACCEL);
+    if (_heldKeys.has('ArrowDown'))  _tiltAccY = Math.min( TILT_MAX, _tiltAccY + TILT_ACCEL);
+  } else {
+    // Плавно возвращаем к нулю когда клавиши отпущены
+    _tiltAccX *= TILT_DECAY;
+    _tiltAccY *= TILT_DECAY;
+    if (Math.abs(_tiltAccX) < 0.01) _tiltAccX = 0;
+    if (Math.abs(_tiltAccY) < 0.01) _tiltAccY = 0;
+  }
+  // Применяем только если нет гироскопа (на мобиле гироскоп перезаписывает)
+  if (!gyroEnabled) {
+    setGravity(_tiltAccX, _tiltAccY);
+  }
+}
 
 function applySwipeImpulse(ix, iy) {
   if (getFaceState() === 'scattered') {
@@ -380,6 +493,7 @@ function tick() {
   const dt  = Math.min(now - lastTickTime, 50);
   lastTickTime = now;
 
+  applyKeyboardTilt();
   applyGyroTilt();
   tickPhysics(dt);
   tickBolts(dt);
@@ -398,6 +512,7 @@ function tick() {
 // ============================================================
 
 createShakeButton();
+createDpad();
 requestAnimationFrame(tick);
 
 // Загружаем дефолтный скин — он вызовет initPhysics + initBolts,
